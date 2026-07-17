@@ -72,7 +72,8 @@ router.get('/keys/crl', requireAuthority, getCRL);
  * Submit a request for a business signing key.
  *
  * Security requirements:
- *  - requireAuth:      The caller must be a logged-in user (session or demo bypass).
+ *  - requireAuth:      The caller must be a logged-in user (via an authenticated
+ *                      Passport.js session — no demo bypass exists).
  *                      Without this the handler crashes on req.user.id when called
  *                      anonymously, and unauthenticated actors could insert arbitrary
  *                      rows into key_requests.
