@@ -243,11 +243,15 @@ const hasher = require('./utils/hasher');
 const { getBucket, mongoose: mongooseConn } = require('./db/mongodb');
 // Import Types once at module level — avoids repeated inline require() inside the interval
 const { Types: MongooseTypes } = mongooseConn;
+const crypto = require('crypto');
 
+let isWatcherRunning = false;
 setInterval(async () => {
+    if (isWatcherRunning) return;
     const bucket = getBucket();
     if (!bucket) return; // Wait for GridFS connection to initialise
 
+    isWatcherRunning = true;
     try {
         const docs = db.prepare(`
             SELECT * FROM documents 
@@ -261,7 +265,7 @@ setInterval(async () => {
             // Skip legacy local files that aren't valid MongoDB ObjectIds (24 hex chars)
             if (!/^[0-9a-fA-F]{24}$/.test(storageId)) continue;
 
-            let tmpPath = path.resolve('tmp', `bg_verify_${doc.block_index}`);
+            let tmpPath = path.resolve('tmp', `bg_verify_${crypto.randomUUID()}`);
             try {
                 // Reconstruct from GridFS using the module-level MongooseTypes import
                 const downloadStream = bucket.openDownloadStream(new MongooseTypes.ObjectId(storageId));
@@ -283,25 +287,24 @@ setInterval(async () => {
                 // Only advance last_checked_at after a clean, definitive check (pass or tamper verdict).
                 // Leaving the timestamp unchanged on infrastructure errors lets the next watcher run retry.
                 db.prepare("UPDATE documents SET last_checked_at = datetime('now') WHERE block_index = ?").run(doc.block_index);
-
-                if (fs.existsSync(tmpPath)) {
-                    try { fs.unlinkSync(tmpPath); } catch (e) {
-                        // On Windows, files are often locked briefly — silent fallback.
-                    }
-                }
             } catch (err) {
                 // Infrastructure error (GridFS stream failure, hash I/O error, etc.).
                 // Do NOT update last_checked_at — preserve the original timestamp so this
                 // document is retried on the next watcher interval rather than silently skipped.
                 console.error(`[BG_WATCHER] Infrastructure error on block #${doc.block_index} — will retry:`, err.message);
+            } finally {
                 if (fs.existsSync(tmpPath)) {
-                    try { fs.unlinkSync(tmpPath); } catch (e) { }
+                    try { fs.unlinkSync(tmpPath); } catch (e) {
+                        // On Windows, files are often locked briefly — silent fallback.
+                    }
                 }
             }
         }
     } catch (e) {
         // Outer catch: database-level failure (SQLite busy, schema error, etc.)
         console.error('[BG_WATCHER] Fatal watcher cycle error — skipping batch:', e.message);
+    } finally {
+        isWatcherRunning = false;
     }
 }, 30000); // 30 s interval to reduce load
 
