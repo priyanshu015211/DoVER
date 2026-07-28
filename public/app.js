@@ -2127,9 +2127,9 @@ async function showVersionHistory(id) {
                             <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${new Date(v.upload_timestamp).toLocaleDateString()}</span>
                             ${isLatest ? '<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[8px] font-black uppercase tracking-tighter">Current Version</span>' : ''}
                         </div>
-                        <h4 class="font-bold text-primary dark:text-[#D6E3FF] text-sm">${v.version_note || (v.version_number === 1 ? 'Original Registration' : 'No note provided')}</h4>
+                        <h4 class="font-bold text-primary dark:text-[#D6E3FF] text-sm">${escapeHtml(v.version_note || (v.version_number === 1 ? 'Original Registration' : 'No note provided'))}</h4>
                         <div class="mt-2 flex items-center gap-3 text-[10px] text-slate-500 dark:text-slate-400 font-medium">
-                            <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">person</span> ${v.uploaded_by}</span>
+                            <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">person</span> ${escapeHtml(v.uploaded_by)}</span>
                             <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">tag</span> Block #${v.document_id}</span>
                         </div>
                     </div>
