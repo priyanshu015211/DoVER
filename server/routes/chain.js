@@ -101,7 +101,8 @@ router.get('/document/:id', (req, res) => {
         }
 
         if (!canAccessFullContent(req.user, document)) {
-            return res.status(403).json({ success: false, error: 'Permission denied' });
+            const isLegacy = !document.uploader_email && document.uploaded_by;
+            return res.status(403).json({ success: false, error: isLegacy ? 'Legacy document requires authority approval' : 'Permission denied' });
         }
 
         res.json(document);
@@ -119,7 +120,8 @@ router.get('/document/:id/history', (req, res) => {
         }
 
         if (!canAccessFullContent(req.user, doc)) {
-            return res.status(403).json({ success: false, error: 'Permission denied' });
+            const isLegacy = !doc.uploader_email && doc.uploaded_by;
+            return res.status(403).json({ success: false, error: isLegacy ? 'Legacy document requires authority approval' : 'Permission denied' });
         }
 
         const history = db.prepare(`
@@ -226,7 +228,8 @@ router.get('/document/:id/versions', (req, res) => {
 
         // RBAC check
         if (!canAccessFullContent(req.user, currentDoc)) {
-            return res.status(403).json({ success: false, error: 'Permission denied' });
+            const isLegacy = !currentDoc.uploader_email && currentDoc.uploaded_by;
+            return res.status(403).json({ success: false, error: isLegacy ? 'Legacy document requires authority approval' : 'Permission denied' });
         }
 
         const targetFilename = currentDoc.filename;
@@ -365,7 +368,8 @@ router.get('/document/:id/certified', async (req, res) => {
 
         // RBAC: Authority OR Document Owner
         if (!canAccessFullContent(req.user, doc)) {
-            return res.status(403).json({ success: false, error: 'Permission denied' });
+            const isLegacy = !doc.uploader_email && doc.uploaded_by;
+            return res.status(403).json({ success: false, error: isLegacy ? 'Legacy document requires authority approval' : 'Permission denied' });
         }
 
         // 2. Fetch original file from GridFS

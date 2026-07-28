@@ -199,45 +199,47 @@ router.post('/batch-upload', uploadLimiter, (req, res) => {
             for (const file of req.files) {
                 const tmpFilePath = path.resolve(file.path);
                 
-                // Calculate hash early for consistency
-                const fileHash = await hasher.generateFileHashAsync(tmpFilePath);
+                try {
+                    // Calculate hash early for consistency
+                    const fileHash = await hasher.generateFileHashAsync(tmpFilePath);
 
-                // Upload to GridFS
-                const uploadStream = bucket.openUploadStream(file.originalname, {
-                    contentType: file.mimetype,
-                    metadata: { uploadedBy, uploaderEmail, fileHash, batchId }
-                });
+                    // Upload to GridFS
+                    const uploadStream = bucket.openUploadStream(file.originalname, {
+                        contentType: file.mimetype,
+                        metadata: { uploadedBy, uploaderEmail, fileHash, batchId }
+                    });
 
-                const gridfsId = uploadStream.id;
-                fs.createReadStream(tmpFilePath).pipe(uploadStream);
+                    const gridfsId = uploadStream.id;
+                    fs.createReadStream(tmpFilePath).pipe(uploadStream);
 
-                await new Promise((resolve, reject) => {
-                    uploadStream.on('finish', resolve);
-                    uploadStream.on('error', reject);
-                });
+                    await new Promise((resolve, reject) => {
+                        uploadStream.on('finish', resolve);
+                        uploadStream.on('error', reject);
+                    });
 
-                const jobData = {
-                    storageId: gridfsId.toString(),
-                    originalname: file.originalname,
-                    mimetype: file.mimetype,
-                    uploadedBy,
-                    uploaderEmail,
-                    department: documentCategory,
-                    batch_id: batchId,
-                    fileHash
-                };
+                    const jobData = {
+                        storageId: gridfsId.toString(),
+                        originalname: file.originalname,
+                        mimetype: file.mimetype,
+                        uploadedBy,
+                        uploaderEmail,
+                        department: documentCategory,
+                        batch_id: batchId,
+                        fileHash
+                    };
 
-                if (isQueueReady) {
-                    const job = await documentQueue.add(jobData);
-                    jobIds.push(job.id);
-                } else {
-                    const result = await processDocument(jobData);
-                    results.push(result);
-                }
-
-                // Cleanup local temp file
-                if (fs.existsSync(tmpFilePath)) {
-                    fs.unlinkSync(tmpFilePath);
+                    if (isQueueReady) {
+                        const job = await documentQueue.add(jobData);
+                        jobIds.push(job.id);
+                    } else {
+                        const result = await processDocument(jobData);
+                        results.push(result);
+                    }
+                } finally {
+                    // Cleanup local temp file
+                    if (fs.existsSync(tmpFilePath)) {
+                        try { fs.unlinkSync(tmpFilePath); } catch(e) {}
+                    }
                 }
             }
 
@@ -252,6 +254,15 @@ router.post('/batch-upload', uploadLimiter, (req, res) => {
         } catch (error) {
             console.error('[BATCH_ERROR]', error);
             res.status(500).json({ success: false, error: error.message });
+        } finally {
+            // Failsafe cleanup for any files that weren't processed due to early exit
+            if (req.files && Array.isArray(req.files)) {
+                for (const file of req.files) {
+                    if (file.path && fs.existsSync(file.path)) {
+                        try { fs.unlinkSync(file.path); } catch(e) {}
+                    }
+                }
+            }
         }
     });
 });

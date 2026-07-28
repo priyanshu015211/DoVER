@@ -7,7 +7,7 @@ router.get('/', (req, res) => {
         const isAuthority = req.user.role === 'authority';
         const userEmail = req.user.email;
 
-        let totalDocs, tamperedCount, verifiedToday;
+        let totalDocs, tamperedCount, verifiedToday, legacyUnownedCount;
         const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
         if (isAuthority) {
@@ -16,18 +16,23 @@ router.get('/', (req, res) => {
             verifiedToday = db.prepare(
                 "SELECT COUNT(*) as count FROM documents WHERE date(upload_timestamp) = ? AND is_tampered = 0"
             ).get(today).count;
+            legacyUnownedCount = db.prepare('SELECT COUNT(*) as count FROM documents WHERE uploader_email IS NULL').get().count;
         } else {
             totalDocs = db.prepare('SELECT COUNT(*) as count FROM documents WHERE LOWER(uploader_email) = LOWER(?)').get(userEmail).count;
             tamperedCount = db.prepare('SELECT COUNT(*) as count FROM documents WHERE LOWER(uploader_email) = LOWER(?) AND is_tampered = 1').get(userEmail).count;
             verifiedToday = db.prepare(
                 "SELECT COUNT(*) as count FROM documents WHERE LOWER(uploader_email) = LOWER(?) AND date(upload_timestamp) = ? AND is_tampered = 0"
             ).get(userEmail, today).count;
+            legacyUnownedCount = db.prepare(
+                "SELECT COUNT(*) as count FROM documents WHERE uploader_email IS NULL AND LOWER(uploaded_by) = LOWER(?)"
+            ).get(req.user.name).count;
         }
 
         res.json({
             total_documents: totalDocs,
             verified_today: verifiedToday,
-            tampered_detected: tamperedCount
+            tampered_detected: tamperedCount,
+            legacy_unowned: legacyUnownedCount
         });
     } catch (error) {
         console.error(error);

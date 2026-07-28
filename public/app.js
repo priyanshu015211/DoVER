@@ -604,6 +604,16 @@ function renderGlobalStatsBar(container) {
         document.getElementById('stat-total').textContent = d.total_documents?.toLocaleString() ?? '0';
         document.getElementById('stat-verified').textContent = d.verified_today?.toLocaleString() ?? '0';
         document.getElementById('stat-tampered').textContent = String(d.tampered_detected ?? 0).padStart(2, '0');
+        
+        if (d.legacy_unowned > 0) {
+            const warning = document.createElement('div');
+            warning.className = 'md:col-span-3 p-4 bg-orange-50 border border-orange-200 rounded-xl flex items-center gap-3 fade-in mt-2';
+            warning.innerHTML = `<span class="material-symbols-outlined text-orange-500">info</span>
+                                 <p class="text-sm font-medium text-orange-800">
+                                     <strong>${d.legacy_unowned} legacy documents</strong> require authority approval to access due to ambiguous ownership records.
+                                 </p>`;
+            el.appendChild(warning);
+        }
     }).catch(() => { });
 }
 

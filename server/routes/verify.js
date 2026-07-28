@@ -108,7 +108,8 @@ router.get('/:id/proof', verifyLimiter, (req, res) => {
             } catch (auditErr) {
                 console.error('[PROOF_AUDIT_ERROR]', auditErr);
             }
-            return res.status(403).json({ success: false, error: 'Permission denied' });
+            const isLegacy = !doc.uploader_email && doc.uploaded_by;
+            return res.status(403).json({ success: false, error: isLegacy ? 'Legacy document requires authority approval' : 'Permission denied' });
         }
 
         // ── Build Proof Bundle ────────────────────────────────────────────────────
@@ -172,7 +173,8 @@ router.get('/:hash', verifyLimiter, async (req, res) => {
         }
 
         if (!canAccessProof(req.user, doc)) {
-            return res.status(403).json({ success: false, error: 'Permission denied' });
+            const isLegacy = !doc.uploader_email && doc.uploaded_by;
+            return res.status(403).json({ success: false, error: isLegacy ? 'Legacy document requires authority approval' : 'Permission denied' });
         }
 
         if (doc.is_tampered) {
@@ -320,7 +322,8 @@ router.post('/', verifyLimiter, upload.single('file'), async (req, res) => {
 
         if (!canAccessProof(req.user, doc)) {
             if (newPath && fs.existsSync(newPath)) fs.unlinkSync(newPath);
-            return res.status(403).json({ success: false, error: 'Permission denied' });
+            const isLegacy = !doc.uploader_email && doc.uploaded_by;
+            return res.status(403).json({ success: false, error: isLegacy ? 'Legacy document requires authority approval' : 'Permission denied' });
         }
 
         // 2. Perform Content Comparison.
