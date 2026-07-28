@@ -4,6 +4,8 @@
   "description": "Node.js + Express project for file management and verification.",
   "main": "server/app.js",
   "scripts": {
+    "migrate:legacy": "node server/db/migrate_uploader_email.js",
+    "prestart": "npm run migrate:legacy",
     "start": "node server/app.js",
     "dev": "nodemon server/app.js",
     "test": "node --test"
