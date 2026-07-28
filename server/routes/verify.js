@@ -267,8 +267,8 @@ router.get('/:hash', verifyLimiter, async (req, res) => {
 // ─────────────────────────────────────────────────────────────
 router.post('/', verifyLimiter, upload.single('file'), async (req, res) => {
     let tmpPath = '';
+    let newPath = null;
     try {
-        let newPath = null;
         if (req.file) {
             const ext = req.file.mimetype === 'image/png' ? '.png' : '.jpg';
             newPath   = req.file.path + ext;
@@ -315,7 +315,6 @@ router.post('/', verifyLimiter, upload.single('file'), async (req, res) => {
         }
 
         if (!doc) {
-            if (newPath && fs.existsSync(newPath)) fs.unlinkSync(newPath);
             return res.status(404).json({
                 success: false,
                 error: 'No original record found for this document identity.',
@@ -587,8 +586,10 @@ router.post('/', verifyLimiter, upload.single('file'), async (req, res) => {
 
     } catch (error) {
         console.error('[VERIFY_ERROR]', error);
-        if (tmpPath && fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
         return res.status(500).json({ success: false, error: 'VERIFICATION_FAILED' });
+    } finally {
+        if (tmpPath && fs.existsSync(tmpPath)) { try { fs.unlinkSync(tmpPath); } catch(e) {} }
+        if (newPath && fs.existsSync(newPath)) { try { fs.unlinkSync(newPath); } catch(e) {} }
     }
 });
 
