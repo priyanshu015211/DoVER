@@ -29,14 +29,15 @@ class SignatureEngine {
             this.password = process.env.SIGNING_P12_PASSWORD || '';
             
             // 1. Load Buffer
+            const certPath = path.resolve(__dirname, '../../cert.p12');
             if (process.env.SIGNING_P12_B64) {
                 console.log('[SIGNER] Loading certificate from environment variable...');
                 this.p12Buffer = Buffer.from(process.env.SIGNING_P12_B64, 'base64');
-            } else if (fs.existsSync('cert.p12')) {
-                console.log('[SIGNER] Loading certificate from cert.p12 file...');
-                this.p12Buffer = fs.readFileSync('cert.p12');
+            } else if (fs.existsSync(certPath)) {
+                console.log('[SIGNER] Loading certificate from ' + certPath + ' file...');
+                this.p12Buffer = fs.readFileSync(certPath);
             } else {
-                throw new Error('No certificate found (missing SIGNING_P12_B64 or cert.p12)');
+                throw new Error('No certificate found (missing SIGNING_P12_B64 or ' + certPath + ')');
             }
 
             // 2. Validate and Parse using forge (to check expiry/identity)

@@ -171,7 +171,8 @@ router.post('/keys/approve/:id', requireAuthority, async (req, res) => {
 
         // Send P12
         res.setHeader('Content-Type', 'application/x-pkcs12');
-        res.setHeader('Content-Disposition', `attachment; filename="${request.business_name.replace(/\s+/g, '_')}_cert.p12"`);
+        const safeName = request.business_name.replace(/[^a-zA-Z0-9_\-]/g, '_').replace(/_+/g, '_');
+        res.setHeader('Content-Disposition', `attachment; filename="${safeName}_cert.p12"`);
         res.send(p12Buffer);
 
     } catch (error) {
