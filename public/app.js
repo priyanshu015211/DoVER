@@ -2392,24 +2392,24 @@ async function renderIntelligenceContent(id, isRefresh = false) {
                                 <span class="material-symbols-outlined text-sm">security_update_good</span> Risk Assessment
                             </h4>
                             <span class="px-3 py-1 rounded-full border ${riskBadge} text-[10px] font-black uppercase tracking-widest shadow-sm">
-                                ${ai.risk_assessment?.rating || 'UNKNOWN'} RISK
+                                ${escapeHtml(ai.risk_assessment?.rating || 'UNKNOWN')} RISK
                             </span>
                         </div>
                         <div class="bg-slate-50 dark:bg-slate-900/30 rounded-3xl p-8 border border-slate-100 dark:border-slate-800 space-y-4">
                             <div class="flex items-center gap-3">
-                                <span class="px-2 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 rounded-lg text-[10px] font-black uppercase tracking-wider">${ai.classification || 'Document'}</span>
+                                <span class="px-2 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 rounded-lg text-[10px] font-black uppercase tracking-wider">${escapeHtml(ai.classification || 'Document')}</span>
                                 <div class="h-1 flex-1 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
                                     <div class="h-full bg-blue-600 rounded-full" style="width: ${(ai.confidence_score || 0.8) * 100}%"></div>
                                 </div>
                                 <span class="text-[10px] font-bold text-slate-400">${Math.round((ai.confidence_score || 0.8) * 100)}% Match</span>
                             </div>
                             <p class="text-slate-600 dark:text-slate-300 text-sm leading-relaxed font-medium">
-                                ${ai.summary}
+                                ${escapeHtml(ai.summary)}
                             </p>
                             <div class="pt-4 border-t border-slate-100 dark:border-slate-800/50">
                                 <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">AI Narrative reasoning</p>
                                 <p class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed italic">
-                                    "${ai.risk_assessment?.reasoning || 'No reasoning provided.'}"
+                                    "${escapeHtml(ai.risk_assessment?.reasoning || 'No reasoning provided.')}"
                                 </p>
                             </div>
                         </div>
@@ -2422,7 +2422,7 @@ async function renderIntelligenceContent(id, isRefresh = false) {
                         <div class="flex flex-wrap gap-2">
                             ${(ai.risk_assessment?.flags || []).map(f => `
                                 <div class="px-4 py-2 bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/20 rounded-xl text-red-600 dark:text-red-400 text-[10px] font-bold flex items-center gap-2">
-                                    <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span> ${f}
+                                    <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span> ${escapeHtml(f)}
                                 </div>
                             `).join('') || '<p class="text-xs text-slate-400 italic">No red flags identified by AI.</p>'}
                         </div>
@@ -2447,19 +2447,19 @@ async function renderIntelligenceContent(id, isRefresh = false) {
                                     <tr>
                                         <td class="px-6 py-4 text-xs font-black text-blue-600 dark:text-blue-400 uppercase">Parties</td>
                                         <td class="px-6 py-4 text-xs font-medium text-slate-700 dark:text-slate-300">
-                                            ${ai.entities?.parties?.join(', ') || 'None found'}
+                                            ${escapeHtml(ai.entities?.parties?.join(', ') || 'None found')}
                                         </td>
                                     </tr>
                                     <tr>
                                         <td class="px-6 py-4 text-xs font-black text-emerald-600 dark:text-emerald-400 uppercase">Dates</td>
                                         <td class="px-6 py-4 text-xs font-medium text-slate-700 dark:text-slate-300">
-                                            ${ai.entities?.dates?.join(', ') || 'None found'}
+                                            ${escapeHtml(ai.entities?.dates?.join(', ') || 'None found')}
                                         </td>
                                     </tr>
                                     <tr>
                                         <td class="px-6 py-4 text-xs font-black text-purple-600 dark:text-purple-400 uppercase">Amounts</td>
                                         <td class="px-6 py-4 text-xs font-medium text-slate-700 dark:text-slate-300">
-                                            ${ai.entities?.amounts?.join(', ') || 'None found'}
+                                            ${escapeHtml(ai.entities?.amounts?.join(', ') || 'None found')}
                                         </td>
                                     </tr>
                                 </tbody>
@@ -2510,7 +2510,7 @@ async function renderIntelligenceContent(id, isRefresh = false) {
                         <button onclick="navigator.clipboard.writeText(document.getElementById('raw-ocr-text').innerText)" class="text-[10px] font-bold text-blue-600 hover:underline uppercase tracking-tighter">Copy Transcript</button>
                     </div>
                     <div class="bg-slate-50 dark:bg-black/20 rounded-2xl p-6 border border-slate-100 dark:border-slate-800 shadow-inner">
-                        <pre id="raw-ocr-text" class="text-xs text-slate-600 dark:text-slate-400 font-mono whitespace-pre-wrap leading-relaxed max-h-64 overflow-y-auto">${doc.ocr_text || 'No text extracted.'}</pre>
+                        <pre id="raw-ocr-text" class="text-xs text-slate-600 dark:text-slate-400 font-mono whitespace-pre-wrap leading-relaxed max-h-64 overflow-y-auto">${escapeHtml(doc.ocr_text || 'No text extracted.')}</pre>
                     </div>
                 </section>
             </div>
