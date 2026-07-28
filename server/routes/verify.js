@@ -36,6 +36,7 @@ const { verifyMerkleProof }     = require('../utils/merkle');
 const { verifyLimiter }         = require('../middleware/limiters');
 const { recordSignal }          = require('../utils/abuse');
 const { resolveSignatureStatus } = require('../utils/verificationService');
+const { sendVerificationError } = require('../utils/errorHelper');
 
 const uploadsDir = path.resolve(__dirname, '..', '..', 'uploads');
 const tmpDir = path.resolve(__dirname, '..', '..', 'tmp');
@@ -90,7 +91,7 @@ router.get('/:id/proof', verifyLimiter, (req, res) => {
             .get(id);
 
         if (!doc) {
-            return res.status(404).json({ success: false, error: 'Document not found' });
+            return sendVerificationError(res, 404, 'DOCUMENT_NOT_FOUND', 'Document not found');
         }
 
         // ── Ownership / Role Check ────────────────────────────────────────────────
@@ -111,7 +112,7 @@ router.get('/:id/proof', verifyLimiter, (req, res) => {
                 console.error('[PROOF_AUDIT_ERROR]', auditErr);
             }
             const isLegacy = !doc.uploader_email && doc.uploaded_by;
-            return res.status(403).json({ success: false, error: isLegacy ? 'Legacy document requires authority approval' : 'Permission denied' });
+            return sendVerificationError(res, 403, isLegacy ? 'LEGACY_APPROVAL_REQUIRED' : 'PERMISSION_DENIED', isLegacy ? 'Legacy document requires authority approval' : 'Permission denied');
         }
 
         // ── Build Proof Bundle ────────────────────────────────────────────────────
@@ -155,7 +156,7 @@ router.get('/:id/proof', verifyLimiter, (req, res) => {
 
     } catch (error) {
         console.error('[PROOF_ERROR]', error);
-        return res.status(500).json({ success: false, error: 'Failed to generate proof' });
+        return sendVerificationError(res, 500, 'PROOF_GENERATION_FAILED', 'Failed to generate proof');
     }
 });
 
@@ -171,12 +172,12 @@ router.get('/:hash', verifyLimiter, async (req, res) => {
             .get(hash);
 
         if (!doc) {
-            return res.status(404).json({ success: false, status: 'invalid', error: 'Hash not found in chain' });
+            return sendVerificationError(res, 404, 'HASH_NOT_FOUND', 'Hash not found in chain');
         }
 
         if (!canAccessProof(req.user, doc)) {
             const isLegacy = !doc.uploader_email && doc.uploaded_by;
-            return res.status(403).json({ success: false, error: isLegacy ? 'Legacy document requires authority approval' : 'Permission denied' });
+            return sendVerificationError(res, 403, isLegacy ? 'LEGACY_APPROVAL_REQUIRED' : 'PERMISSION_DENIED', isLegacy ? 'Legacy document requires authority approval' : 'Permission denied');
         }
 
         if (doc.is_tampered) {
@@ -187,7 +188,7 @@ router.get('/:hash', verifyLimiter, async (req, res) => {
         const { signature_status } = resolveSignatureStatus(doc);
 
         if (signature_status === 'NO_KEY_CONFIGURED') {
-            return res.json({ success: true, status: 'invalid', reason: 'PUBLIC_KEY_MISSING' });
+            return sendVerificationError(res, 503, 'PUBLIC_KEY_MISSING', 'Public key is missing');
         }
 
         // ── Safe Async Chain Traversal ──
@@ -202,12 +203,7 @@ router.get('/:hash', verifyLimiter, async (req, res) => {
             depth++
         ) {
             if (visited.has(currentHash)) {
-                return res.json({
-                    success: true,
-                    status: 'invalid',
-                    reason: 'CYCLE_DETECTED',
-                    checked_blocks: checked,
-                });
+                return sendVerificationError(res, 409, 'CYCLE_DETECTED', 'Cycle detected in verification chain', { checked_blocks: checked });
             }
             visited.add(currentHash);
 
@@ -218,10 +214,7 @@ router.get('/:hash', verifyLimiter, async (req, res) => {
             if (!current) break;
 
             if (current.is_tampered) {
-                return res.json({
-                    success: true,
-                    status: 'invalid',
-                    reason: 'HISTORICAL_TAMPER',
+                return sendVerificationError(res, 409, 'HISTORICAL_TAMPER', 'Historical tamper detected in ancestry', {
                     checked_blocks: checked,
                     tampered_block: current.block_index,
                 });
@@ -239,12 +232,7 @@ router.get('/:hash', verifyLimiter, async (req, res) => {
         }
 
         if (checked >= MAX_DEPTH) {
-            return res.json({
-                success: true,
-                status: 'invalid',
-                reason: 'MAX_DEPTH_EXCEEDED',
-                checked_blocks: checked,
-            });
+            return sendVerificationError(res, 500, 'MAX_DEPTH_EXCEEDED', 'Verification chain max depth exceeded', { checked_blocks: checked });
         }
 
         return res.json({
@@ -257,7 +245,7 @@ router.get('/:hash', verifyLimiter, async (req, res) => {
         });
 
     } catch (error) {
-        return res.status(500).json({ success: false, error: 'VERIFICATION_FAILED' });
+        return sendVerificationError(res, 500, 'VERIFICATION_FAILED', 'Verification failed');
     }
 });
 
@@ -276,7 +264,7 @@ router.post('/', verifyLimiter, upload.single('file'), async (req, res) => {
         }
 
         if (!req.body.document_id && !req.file) {
-            return res.status(400).json({ success: false, error: 'Provide a document ID or file' });
+            return sendVerificationError(res, 400, 'MISSING_INPUT', 'Provide a document ID or file');
         }
 
         let doc;
@@ -315,16 +303,13 @@ router.post('/', verifyLimiter, upload.single('file'), async (req, res) => {
         }
 
         if (!doc) {
-            return res.status(404).json({
-                success: false,
-                error: 'No original record found for this document identity.',
-            });
+            return sendVerificationError(res, 404, 'DOCUMENT_NOT_FOUND', 'No original record found for this document identity.');
         }
 
         if (!canAccessProof(req.user, doc)) {
             if (newPath && fs.existsSync(newPath)) fs.unlinkSync(newPath);
             const isLegacy = !doc.uploader_email && doc.uploaded_by;
-            return res.status(403).json({ success: false, error: isLegacy ? 'Legacy document requires authority approval' : 'Permission denied' });
+            return sendVerificationError(res, 403, isLegacy ? 'LEGACY_APPROVAL_REQUIRED' : 'PERMISSION_DENIED', isLegacy ? 'Legacy document requires authority approval' : 'Permission denied');
         }
 
         // 2. Perform Content Comparison.
@@ -341,7 +326,7 @@ router.post('/', verifyLimiter, upload.single('file'), async (req, res) => {
             const storageId = doc.storage_id || doc.filename;
 
             if (!mongoose.Types.ObjectId.isValid(storageId)) {
-                return res.status(400).json({ success: false, error: 'Legacy file content verification is no longer supported' });
+                return sendVerificationError(res, 400, 'LEGACY_FILE_NOT_SUPPORTED', 'Legacy file content verification is no longer supported');
             }
 
             const extMap = {
@@ -376,12 +361,12 @@ router.post('/', verifyLimiter, upload.single('file'), async (req, res) => {
 
         if (signature_status === 'NO_KEY_CONFIGURED') {
             if (tmpPath && fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
-            return res.json({ status: 'invalid', reason: 'PUBLIC_KEY_MISSING' });
+            return sendVerificationError(res, 503, 'PUBLIC_KEY_MISSING', 'Public key is missing');
         }
 
         if (signature_status === 'ERROR') {
             if (tmpPath && fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
-            return res.json({ status: 'invalid', reason: 'SIGNATURE_VERIFICATION_FAILED' });
+            return sendVerificationError(res, 500, 'SIGNATURE_VERIFICATION_FAILED', 'Signature verification failed');
         }
 
         // 3. OCR Extraction (run once and reuse).
@@ -586,7 +571,7 @@ router.post('/', verifyLimiter, upload.single('file'), async (req, res) => {
 
     } catch (error) {
         console.error('[VERIFY_ERROR]', error);
-        return res.status(500).json({ success: false, error: 'VERIFICATION_FAILED' });
+        return sendVerificationError(res, 500, 'VERIFICATION_FAILED', 'Verification failed');
     } finally {
         if (tmpPath && fs.existsSync(tmpPath)) { try { fs.unlinkSync(tmpPath); } catch(e) {} }
         if (newPath && fs.existsSync(newPath)) { try { fs.unlinkSync(newPath); } catch(e) {} }

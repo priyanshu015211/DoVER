@@ -159,6 +159,17 @@
                 const res = await fetch(url);
                 const data = await res.json();
 
+                if (data.success === false || data.status === 'error' || data.error) {
+                    out.innerHTML = `
+                        <div class="bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 rounded-2xl p-8 text-center space-y-4">
+                            <span class="material-symbols-outlined text-5xl text-red-500">error</span>
+                            <h3 class="text-xl font-bold text-red-900 dark:text-red-400">Verification Failed</h3>
+                            <p class="text-sm text-red-800/60 dark:text-red-400/60">${data.message || data.error || 'An error occurred during verification.'}</p>
+                        </div>`;
+                    out.classList.remove('hidden');
+                    return;
+                }
+
                 if (!data.found) {
                     out.innerHTML = `
                         <div class="bg-red-50 dark:bg-red-900/10 border border-red-100 dark:border-red-900/30 rounded-2xl p-8 text-center space-y-4">
@@ -171,9 +182,16 @@
                 }
 
                 const isOriginal = data.verdict !== 'TAMPERED';
-                const sigColor = data.signature_status === 'VERIFIED' ? 'emerald' : (data.signature_status === 'INVALID' ? 'red' : 'slate');
-                const sigIcon = data.signature_status === 'VERIFIED' ? 'shield_with_heart' : (data.signature_status === 'INVALID' ? 'warning' : 'shield');
-                const sigLabel = data.signature_status === 'VERIFIED' ? 'Cryptographically Signed' : (data.signature_status === 'INVALID' ? 'Signature Invalid' : 'Legacy Document');
+                const sigMeta = {
+                    'VERIFIED': { c: 'emerald', i: 'shield_with_heart', l: 'Cryptographically Signed' },
+                    'INVALID': { c: 'red', i: 'warning', l: 'Signature Invalid' },
+                    'NOT_SIGNED': { c: 'slate', i: 'shield', l: 'Legacy Document' },
+                    'REVOKED_KEY': { c: 'red', i: 'key_off', l: 'Key Revoked' },
+                    'REVOKED_BY_CRL': { c: 'red', i: 'key_off', l: 'Certificate Revoked' },
+                    'UNKNOWN_KEY': { c: 'amber', i: 'help_center', l: 'Unknown Key' },
+                    'NO_KEY_CONFIGURED': { c: 'slate', i: 'settings_alert', l: 'System Misconfigured' },
+                    'ERROR': { c: 'red', i: 'error', l: 'Verification Error' }
+                }[data.signature_status] || { c: 'red', i: 'error', l: 'Verification Error' };
 
                 // Safe DOM insertion (variables are now defined)
                 const verdictBanner = document.getElementById('verdict-banner');
@@ -183,10 +201,13 @@
                 document.getElementById('verdict-title').textContent = isOriginal ? 'Authentic Document' : 'Tampered Document';
 
                 const sigBadge = document.getElementById('sig-badge');
-                sigBadge.className = `inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-${sigColor}-100 dark:bg-${sigColor}-900/20 text-${sigColor}-700 dark:text-${sigColor}-400 text-[10px] font-black uppercase border border-${sigColor}-200 dark:border-${sigColor}-900/30 shadow-sm`;
+                sigBadge.className = `inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-${sigMeta.c}-100 dark:bg-${sigMeta.c}-900/20 text-${sigMeta.c}-700 dark:text-${sigMeta.c}-400 text-[10px] font-black uppercase border border-${sigMeta.c}-200 dark:border-${sigMeta.c}-900/30 shadow-sm`;
 
-                document.getElementById('sig-icon').textContent = sigIcon;
-                document.getElementById('sig-label').textContent = sigLabel;
+                const sigIconEl = document.getElementById('sig-icon');
+                sigIconEl.textContent = sigMeta.i;
+                sigIconEl.style.fontVariationSettings = ['shield_with_heart', 'warning'].includes(sigMeta.i) ? "'FILL' 1" : "'FILL' 0";
+                
+                document.getElementById('sig-label').textContent = sigMeta.l;
 
 
 

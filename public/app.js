@@ -1159,9 +1159,9 @@ function renderVerify(app) {
 
             const res = await resPromise;
             
-            if (res.error) {
+            if (res.success === false || res.error || res.reason || res.message) {
                 const r = document.getElementById('verify-result');
-                r.innerHTML = `<div class="bg-red-50 border border-red-200 rounded-xl p-6 fade-in shadow-sm"><p class="text-red-700 font-bold mb-1 flex items-center gap-2"><span class="material-symbols-outlined">error</span> Verification Failed</p><p class="text-red-600 text-sm ml-8">${escapeHtml(res.error)}</p></div>`;
+                r.innerHTML = `<div class="bg-red-50 border border-red-200 rounded-xl p-6 fade-in shadow-sm"><p class="text-red-700 font-bold mb-1 flex items-center gap-2"><span class="material-symbols-outlined">error</span> Verification Failed</p><p class="text-red-600 text-sm ml-8">${escapeHtml(res.message || res.error || res.reason || 'Verification failed')}</p></div>`;
                 btn.disabled = false;
                 btn.innerHTML = '<span>Verify Authenticity</span><span class="material-symbols-outlined">shield_with_heart</span>';
                 return;
@@ -1175,20 +1175,20 @@ function renderVerify(app) {
             // ── Render Final Result ──
             const r = document.getElementById('verify-result');
 
-            let sigBadge = '';
-            if (res.signature_status === 'VERIFIED') {
-                sigBadge = `<div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-extrabold uppercase mb-4 shadow-sm border border-emerald-200">
-                    <span class="material-symbols-outlined text-xs" style="font-variation-settings:'FILL' 1;">shield_with_heart</span> Cryptographically Signed
-                </div>`;
-            } else if (res.signature_status === 'NOT_SIGNED') {
-                sigBadge = `<div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-[10px] font-extrabold uppercase mb-4 shadow-sm border border-slate-200">
-                    <span class="material-symbols-outlined text-xs">shield</span> Legacy Document
-                </div>`;
-            } else if (res.signature_status === 'INVALID') {
-                sigBadge = `<div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-100 text-red-700 text-[10px] font-extrabold uppercase mb-4 shadow-sm border border-red-200">
-                    <span class="material-symbols-outlined text-xs" style="font-variation-settings:'FILL' 1;">warning</span> Signature Invalid
-                </div>`;
-            }
+            const sigMeta = {
+                'VERIFIED': { c: 'emerald', i: 'shield_with_heart', l: 'Cryptographically Signed' },
+                'INVALID': { c: 'red', i: 'warning', l: 'Signature Invalid' },
+                'NOT_SIGNED': { c: 'slate', i: 'shield', l: 'Legacy Document' },
+                'REVOKED_KEY': { c: 'red', i: 'key_off', l: 'Key Revoked' },
+                'REVOKED_BY_CRL': { c: 'red', i: 'key_off', l: 'Certificate Revoked' },
+                'UNKNOWN_KEY': { c: 'amber', i: 'help_center', l: 'Unknown Key' },
+                'NO_KEY_CONFIGURED': { c: 'slate', i: 'settings_alert', l: 'System Misconfigured' },
+                'ERROR': { c: 'red', i: 'error', l: 'Verification Error' }
+            }[res.signature_status] || { c: 'red', i: 'error', l: 'Verification Error' };
+
+            let sigBadge = `<div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-${sigMeta.c}-100 text-${sigMeta.c}-700 text-[10px] font-extrabold uppercase mb-4 shadow-sm border border-${sigMeta.c}-200">
+                <span class="material-symbols-outlined text-xs"${['shield_with_heart', 'warning'].includes(sigMeta.i) ? ' style="font-variation-settings:\\\'FILL\\\' 1;"' : ''}>${sigMeta.i}</span> ${sigMeta.l}
+            </div>`;
 
             // Gemini AI Section
             let geminiHtml = '';
@@ -1240,7 +1240,7 @@ function renderVerify(app) {
                 `;
             }
 
-            const reasons = res.tamper_reasons ? res.tamper_reasons.map(r => `<li class="flex items-center gap-2 text-red-800/80"><span class="w-1.5 h-1.5 rounded-full bg-red-400"></span> ${r}</li>`).join('') : '';
+            const reasons = Array.isArray(res.tamper_reasons) ? res.tamper_reasons.map(r => `<li class="flex items-center gap-2 text-red-800/80"><span class="w-1.5 h-1.5 rounded-full bg-red-400"></span> ${r}</li>`).join('') : '';
             const blockId = res.document_id || res.block_index || 'N/A';
 
             chainWarning = res.chain_warning ? `
@@ -1258,8 +1258,8 @@ function renderVerify(app) {
                 <div class="mt-4 grid grid-cols-2 gap-3">
                     <div class="bg-white/40 border border-slate-200/50 p-3 rounded-lg">
                         <p class="text-[8px] font-black text-slate-400 uppercase mb-1">File Hash Match</p>
-                        <p class="text-xs font-bold ${res.tamper_reasons.includes('File hash mismatch') ? 'text-red-500' : 'text-emerald-600'}">
-                            ${res.tamper_reasons.includes('File hash mismatch') ? 'FAILED' : 'SUCCESS (MATCH)'}
+                        <p class="text-xs font-bold ${(Array.isArray(res.tamper_reasons) ? res.tamper_reasons : []).includes('File hash mismatch') ? 'text-red-500' : 'text-emerald-600'}">
+                            ${(Array.isArray(res.tamper_reasons) ? res.tamper_reasons : []).includes('File hash mismatch') ? 'FAILED' : 'SUCCESS (MATCH)'}
                         </p>
                     </div>
                     <div class="bg-white/40 border border-slate-200/50 p-3 rounded-lg">
@@ -1270,14 +1270,14 @@ function renderVerify(app) {
                     </div>
                     <div class="bg-white/40 border border-slate-200/50 p-3 rounded-lg">
                         <p class="text-[8px] font-black text-slate-400 uppercase mb-1">Forensic Status</p>
-                        <p class="text-xs font-bold ${res.tamper_reasons.includes('Forensic analysis detected modifications') ? 'text-red-500' : 'text-emerald-600'}">
-                            ${res.tamper_reasons.includes('Forensic analysis detected modifications') ? 'SUSPICIOUS' : 'CLEAN'}
+                        <p class="text-xs font-bold ${(Array.isArray(res.tamper_reasons) ? res.tamper_reasons : []).includes('Forensic analysis detected modifications') ? 'text-red-500' : 'text-emerald-600'}">
+                            ${(Array.isArray(res.tamper_reasons) ? res.tamper_reasons : []).includes('Forensic analysis detected modifications') ? 'SUSPICIOUS' : 'CLEAN'}
                         </p>
                     </div>
                     <div class="bg-white/40 border border-slate-200/50 p-3 rounded-lg">
                         <p class="text-[8px] font-black text-slate-400 uppercase mb-1">Signature Valid</p>
-                        <p class="text-xs font-bold ${res.signature_status === 'VERIFIED' ? 'text-emerald-600' : 'text-red-500'}">
-                            ${res.signature_status === 'VERIFIED' ? 'YES' : 'NO/INVALID'}
+                        <p class="text-xs font-bold text-${sigMeta.c}-600">
+                            ${res.signature_status === 'VERIFIED' ? 'YES' : sigMeta.l.toUpperCase()}
                         </p>
                     </div>
                 </div>

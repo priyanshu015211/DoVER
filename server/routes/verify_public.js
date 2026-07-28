@@ -21,6 +21,7 @@ const router  = express.Router();
 const db      = require('../db/db');
 const { verifyLimiter }         = require('../middleware/limiters');
 const { resolveSignatureStatus, buildPublicPayload } = require('../utils/verificationService');
+const { sendVerificationError } = require('../utils/errorHelper');
 
 // ─────────────────────────────────────────────────────────────
 // GET /api/public/verify/chain-root
@@ -39,7 +40,7 @@ router.get('/chain-root', verifyLimiter, (req, res) => {
         });
     } catch (err) {
         console.error('Public chain-root error:', err);
-        return res.status(500).json({ error: 'Internal server error' });
+        return sendVerificationError(res, 500, 'INTERNAL_SERVER_ERROR', 'Internal server error');
     }
 });
 
@@ -56,7 +57,7 @@ router.get('/qr/:hash', verifyLimiter, async (req, res) => {
             .get(hash);
 
         if (!doc) {
-            return res.json({ found: false, message: 'No record found' });
+            return sendVerificationError(res, 404, 'HASH_NOT_FOUND', 'No record found', { found: false });
         }
 
         const { signature_status, issuer_name } = resolveSignatureStatus(doc);
@@ -64,7 +65,7 @@ router.get('/qr/:hash', verifyLimiter, async (req, res) => {
 
     } catch (error) {
         console.error('[PUBLIC_QR_VERIFY_ERROR]', error);
-        return res.status(500).json({ success: false, error: 'Verification failed' });
+        return sendVerificationError(res, 500, 'VERIFICATION_FAILED', 'Verification failed');
     }
 });
 
@@ -80,7 +81,7 @@ router.get('/:hash', verifyLimiter, async (req, res) => {
             .get(hash);
 
         if (!doc) {
-            return res.json({ found: false, message: 'No record found' });
+            return sendVerificationError(res, 404, 'HASH_NOT_FOUND', 'No record found', { found: false });
         }
 
         const { signature_status, issuer_name } = resolveSignatureStatus(doc);
@@ -88,7 +89,7 @@ router.get('/:hash', verifyLimiter, async (req, res) => {
 
     } catch (error) {
         console.error('[PUBLIC_VERIFY_ERROR]', error);
-        return res.status(500).json({ success: false, error: 'Verification failed' });
+        return sendVerificationError(res, 500, 'VERIFICATION_FAILED', 'Verification failed');
     }
 });
 
