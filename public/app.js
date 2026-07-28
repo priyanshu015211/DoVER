@@ -510,7 +510,7 @@ function renderTable(container, documents) {
                                         <span class="material-symbols-outlined">description</span>
                                     </div>
                                     <div>
-                                        <p class="text-sm font-bold text-primary dark:text-[#D6E3FF]">${d.filename.split(/[/\\]/).pop()}</p>
+                                        <p class="text-sm font-bold text-primary dark:text-[#D6E3FF]">${escapeHtml(d.filename.split(/[/\\]/).pop())}</p>
                                         <p class="text-[10px] font-black text-slate-400 uppercase tracking-tighter">${parentCat}</p>
                                     </div>
                                 </div>
@@ -2064,14 +2064,14 @@ function renderGlobalBatch(app) {
                 <div class="flex-shrink-0">${icon}</div>
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2 mb-2">
-                        <span class="text-sm font-semibold text-primary truncate">${job.filename}</span>
+                        <span class="text-sm font-semibold text-primary truncate">${escapeHtml(job.filename)}</span>
                         ${statusBadge}
                         ${docLink}
                     </div>
                     <div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
                         <div class="h-1.5 rounded-full transition-all duration-500 ${barColors[job.status] || barColors.queued}" style="width:${job.progress}%"></div>
                     </div>
-                    ${job.error ? `<p class="text-[10px] text-red-500 font-bold mt-1">${job.error}</p>` : ''}
+                    ${job.error ? `<p class="text-[10px] text-red-500 font-bold mt-1">${escapeHtml(job.error)}</p>` : ''}
                 </div>
                 <span class="text-xs font-bold text-slate-400 flex-shrink-0">${job.progress}%</span>
             </div>
