@@ -67,13 +67,13 @@ router.post('/', uploadLimiter, (req, res) => {
         const tmpFilePath = req.file ? path.resolve(req.file.path) : null;
         let gridfsId = null;
 
+        const bucket = getBucket();
+        if (!bucket) {
+            return res.status(503).json({ success: false, error: 'Database connection not ready.' });
+        }
+
         try {
             if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
-
-            const bucket = getBucket();
-            if (!bucket) {
-                return res.status(503).json({ success: false, error: 'Database connection not ready.' });
-            }
 
             // Identity checks
             const uploadedBy = req.user?.name || 'Anonymous';
@@ -169,7 +169,7 @@ router.post('/', uploadLimiter, (req, res) => {
             console.error('[UPLOAD_ERROR]', error);
             if (tmpFilePath && fs.existsSync(tmpFilePath)) fs.unlinkSync(tmpFilePath);
             if (gridfsId) {
-                try { await getBucket().delete(new mongoose.Types.ObjectId(gridfsId)); } catch(e) { console.error('GridFS rollback failed', e); }
+                try { await bucket.delete(new mongoose.Types.ObjectId(gridfsId)); } catch(e) { console.error('GridFS rollback failed', e); }
             }
             res.status(500).json({ success: false, error: 'UPLOAD_FAILED' });
         }
