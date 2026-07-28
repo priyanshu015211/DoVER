@@ -13,23 +13,28 @@ const signature = require('../utils/signature');
 const crypto = require('crypto');
 const { getBucket } = require('../db/mongodb');
 const { emailsEqual } = require('../utils/email');
+const { requireAuth } = require('../middleware/auth');
 
 const documentQueue = require('../utils/queue');
 const { processDocument } = require('../utils/processor');
-const apiKey = require('../middleware/apiKey');
+
 const { uploadLimiter } = require('../middleware/limiters');
 const { recordUploadVelocity } = require('../utils/abuse');
 
 // Configure multer for temp storage
+const tmpDir = path.resolve(__dirname, '..', '..', 'tmp');
+
+const sanitizeName = (name) =>
+  path.basename(String(name)).replace(/[^a-zA-Z0-9._-]/g, '_');
+
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        const tmpPath = 'tmp/';
-        if (!fs.existsSync(tmpPath)) fs.mkdirSync(tmpPath);
-        cb(null, tmpPath);
+        if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+        cb(null, tmpDir);
     },
     filename: (req, file, cb) => {
-        const uniqueName = Date.now() + '-' + Math.random().toString(36).slice(2) + '-' + file.originalname;
-        cb(null, uniqueName);
+        const safeName = sanitizeName(file.originalname);
+        cb(null, `${Date.now()}-${crypto.randomUUID()}-${safeName}`);
     }
 });
 
@@ -251,14 +256,35 @@ router.post('/batch-upload', uploadLimiter, (req, res) => {
     });
 });
 
-router.get('/status/:job_id', async (req, res) => {
+router.get('/status/:job_id', requireAuth, async (req, res) => {
     try {
         const job = await documentQueue.getJob(req.params.job_id);
         if (!job) return res.status(404).json({ error: 'Job not found' });
+
+        const ownerEmail = job.data?.uploaderEmail;
+        if (req.user.role !== 'authority' && !emailsEqual(ownerEmail, req.user.email)) {
+            return res.status(403).json({ error: 'Permission denied' });
+        }
+
         const state = await job.getState();
-        res.json({ id: job.id, state, progress: job._progress, result: job.returnvalue });
+        const result = job.returnvalue;
+
+        return res.json({
+            id: job.id,
+            state,
+            progress: job._progress,
+            result: result ? {
+                success: result.success,
+                document_id: result.document_id,
+                block_hash: result.block_hash,
+                filename: result.filename,
+                qr_image_base64: result.qr_image_base64,
+                existing_id: result.existing_id,
+                error: result.error
+            } : null
+        });
     } catch (error) {
-        res.status(500).json({ error: 'Failed to get job status' });
+        return res.status(500).json({ error: 'Failed to get job status' });
     }
 });
 

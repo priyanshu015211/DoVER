@@ -22,7 +22,7 @@ const fs = require('fs');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const passport = require('./utils/passport');
-const apiKey = require('./middleware/apiKey');
+
 const { rateLimit } = require('express-rate-limit');
 const { createClient } = require('redis');
 const nonceMiddleware = require('./middleware/nonce');
@@ -198,13 +198,8 @@ const { requireAuth }   = require('./middleware/auth');
 
 app.use('/auth', authRoutes);
 
-// Upload routes: GET /status/:id is fully public (guest-compatible), everything else requires HMAC + auth + apiKey
-app.use('/api/upload', (req, res, next) => {
-    if (req.method === 'GET' && req.path.startsWith('/status/')) {
-        return next(); // public — job ID is the access token, guest mode compatible
-    }
-    return hmacMiddleware(req, res, () => requireAuth(req, res, () => apiKey(req, res, next)));
-}, uploadRoutes);
+// Upload routes: Fully protected by session auth
+app.use('/api/upload', requireAuth, uploadRoutes);
 
 // ── Public verification (/api/public/verify) ─────────────────
 // Rate-limited, no API key, no session required.
@@ -213,18 +208,11 @@ app.use('/api/upload', (req, res, next) => {
 app.use('/api/public/verify', verifyPublicRoutes);
 
 // ── Privileged verification (/api/verify) ────────────────────
-// POST / and GET /:id/proof also require HMAC + auth (applied here).
-// GET /:hash requires only apiKey (applied inside the router itself).
-app.use('/api/verify', (req, res, next) => {
-    if (req.method === 'POST' || req.path.endsWith('/proof')) {
-        return hmacMiddleware(req, res, () => requireAuth(req, res, () => next()));
-    }
-    next();
-}, verifyRoutes);
+app.use('/api/verify', requireAuth, verifyRoutes);
 
-app.use('/api/chain', hmacMiddleware, requireAuth, chainRoutes);
-app.use('/api/stats', hmacMiddleware, requireAuth, statsRoutes);
-app.use('/api/admin', hmacMiddleware, requireAuth, adminRoutes);
+app.use('/api/chain', requireAuth, chainRoutes);
+app.use('/api/stats', requireAuth, statsRoutes);
+app.use('/api/admin', requireAuth, adminRoutes);
 
 // ── Public CRL Endpoint ──
 app.get('/api/public/crl', (req, res) => {

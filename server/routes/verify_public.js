@@ -23,26 +23,23 @@ const { verifyLimiter }         = require('../middleware/limiters');
 const { resolveSignatureStatus, buildPublicPayload } = require('../utils/verificationService');
 
 // ─────────────────────────────────────────────────────────────
-// GET /api/public/verify/:hash
-// Public hash-lookup — returns a minimal integrity summary.
+// GET /api/public/verify/chain-root
+// Returns the latest global Merkle root for the public verifier
 // ─────────────────────────────────────────────────────────────
-router.get('/:hash', verifyLimiter, async (req, res) => {
+router.get('/chain-root', verifyLimiter, (req, res) => {
     try {
-        const hash = req.params.hash;
-        const doc  = db
-            .prepare('SELECT * FROM documents WHERE block_hash = ?')
-            .get(hash);
-
-        if (!doc) {
-            return res.json({ found: false, message: 'No record found' });
+        const rootRecord = db.prepare("SELECT block_index, merkle_root, created_at FROM blocks ORDER BY block_index DESC LIMIT 1").get();
+        if (!rootRecord) {
+            return res.json({ success: true, merkle_root: null, updated_at: null });
         }
-
-        const { signature_status, issuer_name } = resolveSignatureStatus(doc);
-        return res.json(buildPublicPayload(doc, signature_status, issuer_name));
-
-    } catch (error) {
-        console.error('[PUBLIC_VERIFY_ERROR]', error);
-        return res.status(500).json({ success: false, error: 'Verification failed' });
+        return res.json({
+            success: true,
+            merkle_root: rootRecord.merkle_root,
+            updated_at: rootRecord.created_at
+        });
+    } catch (err) {
+        console.error('Public chain-root error:', err);
+        return res.status(500).json({ error: 'Internal server error' });
     }
 });
 
@@ -67,6 +64,30 @@ router.get('/qr/:hash', verifyLimiter, async (req, res) => {
 
     } catch (error) {
         console.error('[PUBLIC_QR_VERIFY_ERROR]', error);
+        return res.status(500).json({ success: false, error: 'Verification failed' });
+    }
+});
+
+// ─────────────────────────────────────────────────────────────
+// GET /api/public/verify/:hash
+// Public hash-lookup — returns a minimal integrity summary.
+// ─────────────────────────────────────────────────────────────
+router.get('/:hash', verifyLimiter, async (req, res) => {
+    try {
+        const hash = req.params.hash;
+        const doc  = db
+            .prepare('SELECT * FROM documents WHERE block_hash = ?')
+            .get(hash);
+
+        if (!doc) {
+            return res.json({ found: false, message: 'No record found' });
+        }
+
+        const { signature_status, issuer_name } = resolveSignatureStatus(doc);
+        return res.json(buildPublicPayload(doc, signature_status, issuer_name));
+
+    } catch (error) {
+        console.error('[PUBLIC_VERIFY_ERROR]', error);
         return res.status(500).json({ success: false, error: 'Verification failed' });
     }
 });

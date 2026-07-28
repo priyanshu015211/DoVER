@@ -13,7 +13,7 @@ const { emailsEqual } = require('../utils/email');
 /**
  * Helper to check if a user can access the full content/files of a document.
  * Authority can access all. Regular users can only access their own.
- * Note: Metadata is now visible to all in the Global Ledger for transparency.
+ * Note: Metadata is visible to authenticated users in the Global Ledger.
  */
 function canAccessFullContent(user, document) {
     if (!user) return false;
@@ -23,13 +23,8 @@ function canAccessFullContent(user, document) {
 
 router.get('/', (req, res) => {
     try {
-        const isAuthority = req.user && req.user.role === 'authority';
-        const isLoggedIn = !!req.user;
+        const isAuthority = req.user.role === 'authority';
         const mode = req.query.mode || 'b2c'; // Default to personal vault mode
-        
-        if (!isLoggedIn) {
-            return res.json([]);
-        }
 
         let documents;
         if (isAuthority) {
@@ -71,8 +66,7 @@ router.get('/', (req, res) => {
 
 router.get('/audit', (req, res) => {
     try {
-        const isAuthority = req.user && req.user.role === 'authority';
-        const isLoggedIn = !!req.user;
+        const isAuthority = req.user.role === 'authority';
         let auditLogs;
         if (isAuthority) {
             auditLogs = db.prepare(`
@@ -81,7 +75,7 @@ router.get('/audit', (req, res) => {
                 LEFT JOIN documents d ON a.document_id = d.block_index
                 ORDER BY a.timestamp DESC
             `).all();
-        } else if (isLoggedIn) {
+        } else {
             auditLogs = db.prepare(`
                 SELECT a.document_id, d.filename, a.action, a.actor, a.timestamp, a.details
                 FROM audit_log a
@@ -89,8 +83,6 @@ router.get('/audit', (req, res) => {
                 WHERE LOWER(d.uploader_email) = LOWER(?)
                 ORDER BY a.timestamp DESC
             `).all(req.user.email);
-        } else {
-            auditLogs = []; // Guests don't see private audit trails
         }
         res.json(auditLogs);
     } catch (error) {

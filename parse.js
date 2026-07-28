@@ -1,0 +1,1 @@
+const issues = require('./issues.json'); issues.forEach(i => console.log('Issue ' + i.number + ': Author: ' + i.author.login + ', Assignees: ' + i.assignees.map(a=>a.login).join(',') + ', Comments: ' + i.comments.length + ' (' + i.comments.map(c=>c.author.login).join(',') + ')'));

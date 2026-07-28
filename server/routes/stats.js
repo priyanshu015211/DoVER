@@ -4,9 +4,8 @@ const db = require('../db/db');
 
 router.get('/', (req, res) => {
     try {
-        const isAuthority = req.user && req.user.role === 'authority';
-        const userName = req.user?.name || '';
-        const userEmail = req.user?.email || '';
+        const isAuthority = req.user.role === 'authority';
+        const userEmail = req.user.email;
 
         let totalDocs, tamperedCount, verifiedToday;
         const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
@@ -18,10 +17,10 @@ router.get('/', (req, res) => {
                 "SELECT COUNT(*) as count FROM documents WHERE date(upload_timestamp) = ? AND is_tampered = 0"
             ).get(today).count;
         } else {
-            totalDocs = db.prepare('SELECT COUNT(*) as count FROM documents WHERE uploader_email = ?').get(userEmail).count;
-            tamperedCount = db.prepare('SELECT COUNT(*) as count FROM documents WHERE uploader_email = ? AND is_tampered = 1').get(userEmail).count;
+            totalDocs = db.prepare('SELECT COUNT(*) as count FROM documents WHERE LOWER(uploader_email) = LOWER(?)').get(userEmail).count;
+            tamperedCount = db.prepare('SELECT COUNT(*) as count FROM documents WHERE LOWER(uploader_email) = LOWER(?) AND is_tampered = 1').get(userEmail).count;
             verifiedToday = db.prepare(
-                "SELECT COUNT(*) as count FROM documents WHERE uploader_email = ? AND date(upload_timestamp) = ? AND is_tampered = 0"
+                "SELECT COUNT(*) as count FROM documents WHERE LOWER(uploader_email) = LOWER(?) AND date(upload_timestamp) = ? AND is_tampered = 0"
             ).get(userEmail, today).count;
         }
 

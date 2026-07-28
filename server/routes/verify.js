@@ -3,10 +3,7 @@
  *
  * Every route in this file is protected by at minimum:
  *   verifyLimiter  → rate-limit abuse
- *   apiKey         → valid X-Api-Key header
- *
- * The POST / and GET /:id/proof routes additionally require:
- *   hmacMiddleware + requireAuth  (applied at the app.js mount point)
+ *   requireAuth    → valid session (applied at the app.js mount point)
  *
  * Public (unauthenticated) hash/QR lookups have been moved to
  *   server/routes/verify_public.js
@@ -34,7 +31,7 @@ const fs        = require('fs');
 const path      = require('path');
 const { getBucket, mongoose }   = require('../db/mongodb');
 const { calculateSimilarity }   = require('../utils/ocr');
-const apiKey                    = require('../middleware/apiKey');
+
 const { verifyMerkleProof }     = require('../utils/merkle');
 const { verifyLimiter }         = require('../middleware/limiters');
 const { recordSignal }          = require('../utils/abuse');
@@ -68,35 +65,22 @@ function canAccessProof(user, document) {
     if (user.role === 'authority') return true;
 
     // Primary ownership check: email comparison (case-insensitive).
-    // Both sides must be non-empty strings to avoid false positives when either is NULL/undefined.
-    if (
-        document.uploader_email &&
-        user.email &&
-        document.uploader_email.toLowerCase() === user.email.toLowerCase()
-    ) {
-        return true;
+    if (document.uploader_email) {
+        return !!(
+            user.email &&
+            document.uploader_email.toLowerCase() === user.email.toLowerCase()
+        );
     }
-
-    // Fallback ownership check: display-name comparison for legacy documents that were
-    // recorded before the uploader_email column was added (see migrate_email.js).
-    // Only used when the document has no uploader_email stored at all.
-    if (
-        !document.uploader_email &&
-        document.uploaded_by &&
-        user.name &&
-        document.uploaded_by === user.name
-    ) {
-        return true;
-    }
-
+    
+    // No valid ownership mapping found, deny access
     return false;
 }
 
 // ─────────────────────────────────────────────────────────────
 // GET /:id/proof  — download a full proof bundle (privileged)
-// Requires: verifyLimiter + apiKey (+ hmac + auth from app.js)
+// Requires: verifyLimiter (+ auth from app.js)
 // ─────────────────────────────────────────────────────────────
-router.get('/:id/proof', verifyLimiter, apiKey, (req, res) => {
+router.get('/:id/proof', verifyLimiter, (req, res) => {
     try {
         const id  = req.params.id;
         const doc = db
@@ -109,9 +93,7 @@ router.get('/:id/proof', verifyLimiter, apiKey, (req, res) => {
 
         // ── Ownership / Role Check ────────────────────────────────────────────────
         // req.user is populated by the requireAuth middleware that app.js wraps this
-        // route in (see the '/api/verify' mount block).  The apiKey middleware alone
-        // does NOT set req.user, so an unauthenticated API-key-only caller will always
-        // reach this branch and be rejected.
+        // route in (see the '/api/verify' mount block).
         if (!canAccessProof(req.user, doc)) {
             // Audit the denial so administrators can detect enumeration attempts.
             try {
@@ -176,9 +158,9 @@ router.get('/:id/proof', verifyLimiter, apiKey, (req, res) => {
 
 // ─────────────────────────────────────────────────────────────
 // GET /:hash  — quick chain verification (privileged)
-// Requires: verifyLimiter + apiKey
+// Requires: verifyLimiter + session (via app.js)
 // ─────────────────────────────────────────────────────────────
-router.get('/:hash', verifyLimiter, apiKey, async (req, res) => {
+router.get('/:hash', verifyLimiter, async (req, res) => {
     try {
         const hash = req.params.hash;
         const doc  = db
@@ -273,9 +255,9 @@ router.get('/:hash', verifyLimiter, apiKey, async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────
 // POST /  — deep file verification (privileged)
-// Requires: verifyLimiter + apiKey (+ hmac + auth from app.js)
+// Requires: verifyLimiter (+ auth from app.js)
 // ─────────────────────────────────────────────────────────────
-router.post('/', verifyLimiter, apiKey, upload.single('file'), async (req, res) => {
+router.post('/', verifyLimiter, upload.single('file'), async (req, res) => {
     let tmpPath = '';
     try {
         let newPath = null;
@@ -330,6 +312,11 @@ router.post('/', verifyLimiter, apiKey, upload.single('file'), async (req, res) 
                 success: false,
                 error: 'No original record found for this document identity.',
             });
+        }
+
+        if (!canAccessProof(req.user, doc)) {
+            if (newPath && fs.existsSync(newPath)) fs.unlinkSync(newPath);
+            return res.status(403).json({ success: false, error: 'Permission denied' });
         }
 
         // 2. Perform Content Comparison.
@@ -594,4 +581,8 @@ router.post('/', verifyLimiter, apiKey, upload.single('file'), async (req, res) 
     }
 });
 
+// Expose for testing
+if (process.env.NODE_ENV === 'test') {
+    router.canAccessProof = canAccessProof;
+}
 module.exports = router;

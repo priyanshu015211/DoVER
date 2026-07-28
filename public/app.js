@@ -1,10 +1,36 @@
+const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+}[c]));
+
+const sanitizeHref = (url) => {
+    if (!url) return '';
+    try {
+        const parsed = new URL(url, window.location.origin);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+            return parsed.href;
+        }
+    } catch(e) {}
+    return '';
+};
+
+const sanitizeQrSrc = (data) => {
+    if (typeof data !== 'string') return '';
+    if (data.startsWith('data:image/png;base64,')) return data;
+    return '';
+};
+
 // ── API Configuration ──
-const API_KEY = '11824503150ade959ba564320a36fcbb24274766c0a7f62589498eef4738337a';
+// Removed hardcoded API_KEY to prevent client-side secret exposure
+
 
 // ── API helpers ──
 const API = {
-    async getStats() { return (await fetch('/api/stats')).json(); },
-    async getChain(mode = 'b2c') { return (await fetch(`/api/chain?mode=${mode}`)).json(); },
+    async getStats() { return (await secureFetch('/api/stats')).json(); },
+    async getChain(mode = 'b2c') { return (await secureFetch(`/api/chain?mode=${mode}`)).json(); },
     async upload(formData, file) {
         const fileHash = await computeFileHash(file);
         return (await secureFetch('/api/upload', {
@@ -24,7 +50,7 @@ const API = {
     },
     async getAudit() { return (await secureFetch('/api/chain/audit')).json(); },
     async getMe() {
-        const r = await fetch('/auth/me');
+        const r = await fetch('/auth/me', { credentials: 'include' });
         if (r.status === 401) return null;
         return r.json();
     },
@@ -81,44 +107,11 @@ async function computeFileHash(file) {
 }
 
 async function secureFetch(url, options = {}) {
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const fileHash = options.fileHash || '';
-    
-    // Generate a random 16-character hex nonce
-    const nonce = Array.from(crypto.getRandomValues(new Uint8Array(8)))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
-
-    let signature = '';
-    if (currentUser && currentUser.api_secret) {
-        const method = options.method || 'GET';
-        
-        let bodyStr = '';
-        if (options.body && !(options.body instanceof FormData)) {
-            // STABLE SIGNING: Sort keys alphabetically to match backend hmac.js
-            const bodyObj = typeof options.body === 'string' ? JSON.parse(options.body) : options.body;
-            const sortedBody = Object.keys(bodyObj).sort().reduce((acc, key) => {
-                acc[key] = bodyObj[key];
-                return acc;
-            }, {});
-            bodyStr = JSON.stringify(sortedBody);
-        }
-
-        const payload = `${method}${url}${timestamp}${fileHash}${nonce}${bodyStr}`;
-        signature = CryptoJS.HmacSHA256(payload, currentUser.api_secret).toString();
-    }
-
     const headers = {
-        ...(options.headers || {}),
-        'X-Signature': signature,
-        'X-Timestamp': timestamp,
-        'X-File-Hash': fileHash,
-        'X-Nonce': nonce,
-        'x-api-key': API_KEY,
-        'X-User-ID': currentUser?.id || ''
+        ...(options.headers || {})
     };
 
-    return fetch(url, { ...options, headers });
+    return fetch(url, { ...options, headers, credentials: 'include' });
 }
 
 
@@ -326,7 +319,7 @@ function updateHeaderUI(header, user) {
         <div class="flex items-center gap-4">
             <span class="md:hidden material-symbols-outlined text-blue-900 dark:text-[#E9C176] cursor-pointer" id="menu-toggle">menu</span>
             <div class="flex items-center gap-2">
-                <h2 id="page-title" class="font-sans tracking-tight text-slate-500 dark:text-[#D6E3FF] font-medium text-sm">Welcome back, ${(user.name || 'User').split(' ')[0]}</h2>
+                <h2 id="page-title" class="font-sans tracking-tight text-slate-500 dark:text-[#D6E3FF] font-medium text-sm">Welcome back, <span id="header-first-name"></span></h2>
                 ${badge}
             </div>
         </div>
@@ -335,10 +328,10 @@ function updateHeaderUI(header, user) {
                 <a href="#${prefix}/settings" class="p-2 rounded-full hover:bg-slate-200/50 dark:hover:bg-slate-700/50 transition-colors text-slate-500 dark:text-[#D6E3FF]"><span class="material-symbols-outlined">settings</span></a>
                 <div class="flex items-center gap-3">
                     <div class="text-right hidden sm:block">
-                        <p class="text-xs font-bold text-slate-700 dark:text-white leading-none">${user.name}</p>
-                        <p class="text-[10px] text-slate-400 font-medium">${user.email}</p>
+                        <p id="header-full-name" class="text-xs font-bold text-slate-700 dark:text-white leading-none"></p>
+                        <p id="header-email" class="text-[10px] text-slate-400 font-medium"></p>
                     </div>
-                    <img src="${user.picture}" class="h-9 w-9 rounded-full border-2 border-primary/10 shadow-sm" alt="Profile"/>
+                    <img id="header-avatar" class="h-9 w-9 rounded-full border-2 border-primary/10 shadow-sm" alt="Profile"/>
                 </div>
             </div>
             <button onclick="handleLogout()" class="flex items-center gap-2 text-slate-500 hover:text-error transition-colors text-xs font-bold uppercase tracking-wider">
@@ -347,6 +340,17 @@ function updateHeaderUI(header, user) {
             </button>
         </div>
     `;
+
+    document.getElementById('header-first-name').textContent = (user.name || 'User').split(' ')[0];
+    document.getElementById('header-full-name').textContent = user.name;
+    document.getElementById('header-email').textContent = user.email;
+    const avatar = document.getElementById('header-avatar');
+    const safePic = sanitizeHref(user.picture);
+    if (safePic) {
+        avatar.src = safePic;
+    } else {
+        avatar.removeAttribute('src');
+    }
 
     // Re-attach menu toggle event
     document.getElementById('menu-toggle')?.addEventListener('click', () => {
@@ -820,9 +824,7 @@ function renderGlobalUpload(app) {
                     const checkJob = setInterval(async () => {
                         attempts++;
                         try {
-                            const status = await fetch(`/api/upload/status/${res.job_id}`, {
-                                headers: { 'x-api-key': API_KEY }
-                            }).then(r => r.json());
+                            const status = await secureFetch(`/api/upload/status/${res.job_id}`, { method: 'GET' }).then(r => r.json());
 
                             if (status.state === 'completed' && status.result) {
                                 clearInterval(checkJob);
@@ -978,13 +980,13 @@ function renderSuccessUI(resultDiv, res) {
                     <p class="text-sm text-green-800/70 text-sm">Block Index: <strong>#${res.block_index}</strong></p>
                     <span class="px-2 py-0.5 rounded bg-green-200 text-green-800 text-[10px] font-black uppercase">Version ${res.version_number || 1}</span>
                 </div>
-                <code class="hash-text bg-green-100 px-3 py-2 rounded block text-green-800 mb-2">${res.block_hash}</code>
+                <code class="hash-text bg-green-100 px-3 py-2 rounded block text-green-800 mb-2">${escapeHtml(res.block_hash)}</code>
                 ${res.parent_document_id ? `<p class="text-[10px] font-bold text-green-600 mb-2 uppercase">Supersedes Block #${res.parent_document_id}</p>` : ''}
                 <div class="flex flex-wrap gap-2 mt-4">
                     <a href="/api/chain/document/${res.block_index}/certified" target="_blank" class="bg-primary text-on-primary px-3 py-1.5 rounded-lg text-[10px] font-black uppercase flex items-center gap-2 hover:opacity-90 transition-all shadow-md">
                         <span class="material-symbols-outlined text-[14px]">verified</span> Certified PDF
                     </a>
-                    <a href="/api/verify/${res.block_index}/proof?api_key=${API_KEY}" target="_blank" class="bg-white text-primary px-3 py-1.5 rounded-lg text-[10px] font-black uppercase flex items-center gap-2 hover:bg-slate-50 transition-all border border-primary/20">
+                    <a href="/api/verify/${res.block_index}/proof" target="_blank" class="bg-white text-primary px-3 py-1.5 rounded-lg text-[10px] font-black uppercase flex items-center gap-2 hover:bg-slate-50 transition-all border border-primary/20">
                         <span class="material-symbols-outlined text-[14px]">terminal</span> JSON Proof
                     </a>
                 </div>
@@ -992,7 +994,7 @@ function renderSuccessUI(resultDiv, res) {
                 ${forensicHtml}
             </div>
             <div class="bg-white p-2 rounded-lg shadow-sm border border-green-100 flex-shrink-0">
-                <img src="${res.qr_image_base64 || ''}" class="w-24 h-24" alt="Verification QR"/>
+                <img src="${sanitizeQrSrc(res.qr_image_base64)}" class="w-24 h-24" alt="Verification QR"/>
                 <p class="text-[8px] text-center mt-1 text-green-600 font-black tracking-widest">SCAN TO VERIFY</p>
             </div>
         </div>
@@ -1149,7 +1151,7 @@ function renderVerify(app) {
             
             if (res.error) {
                 const r = document.getElementById('verify-result');
-                r.innerHTML = `<div class="bg-red-50 border border-red-200 rounded-xl p-6 fade-in shadow-sm"><p class="text-red-700 font-bold mb-1 flex items-center gap-2"><span class="material-symbols-outlined">error</span> Verification Failed</p><p class="text-red-600 text-sm ml-8">${res.error}</p></div>`;
+                r.innerHTML = `<div class="bg-red-50 border border-red-200 rounded-xl p-6 fade-in shadow-sm"><p class="text-red-700 font-bold mb-1 flex items-center gap-2"><span class="material-symbols-outlined">error</span> Verification Failed</p><p class="text-red-600 text-sm ml-8">${escapeHtml(res.error)}</p></div>`;
                 btn.disabled = false;
                 btn.innerHTML = '<span>Verify Authenticity</span><span class="material-symbols-outlined">shield_with_heart</span>';
                 return;
@@ -1236,7 +1238,7 @@ function renderVerify(app) {
                     <span class="material-symbols-outlined text-orange-500">warning</span>
                     <div>
                         <p class="text-[10px] font-black text-orange-700 uppercase mb-1">Historical Integrity Warning</p>
-                        <p class="text-[10px] text-orange-800/80 leading-tight">${res.chain_warning}</p>
+                        <p class="text-[10px] text-orange-800/80 leading-tight">${escapeHtml(res.chain_warning)}</p>
                     </div>
                 </div>
             ` : '';
@@ -1381,7 +1383,7 @@ function loadChain(silent = false) {
                 : '';
 
             const anchorIcon = d.polygon_txid
-                ? `<a href="https://amoy.polygonscan.com/tx/${d.polygon_txid}" target="_blank" class="material-symbols-outlined text-[14px] text-emerald-500 hover:text-emerald-700 transition-colors" title="View Public Proof on PolygonScan">link</a>`
+                ? `<a href="https://amoy.polygonscan.com/tx/${encodeURIComponent(d.polygon_txid)}" target="_blank" class="material-symbols-outlined text-[14px] text-emerald-500 hover:text-emerald-700 transition-colors" title="View Public Proof on PolygonScan">link</a>`
                 : '';
 
             return `<tr class="${i % 2 === 0 ? '' : 'bg-surface-container-lowest'} hover:bg-slate-50/50 transition-colors">
@@ -1390,12 +1392,12 @@ function loadChain(silent = false) {
                     <span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[8px] font-black uppercase">V${d.version_number || 1}</span>
                 </td>
                 <td class="px-6 py-5 text-sm font-semibold text-primary">
-                    ${fname}
+                    ${escapeHtml(fname)}
                     <div class="mt-1 flex flex-wrap gap-2">
                         <a href="/api/chain/document/${d.block_index}/certified" target="_blank" aria-label="Download certified PDF" class="inline-flex items-center gap-1 text-[9px] font-black uppercase text-primary hover:text-primary-container transition-colors">
                             <span class="material-symbols-outlined text-[12px]">verified</span> Certified PDF
                         </a>
-                        <a href="/api/verify/${d.block_index}/proof?api_key=${API_KEY}" target="_blank" aria-label="Download JSON proof" class="inline-flex items-center gap-1 text-[9px] font-black uppercase text-secondary hover:text-primary-container transition-colors">
+                        <a href="/api/verify/${d.block_index}/proof" target="_blank" aria-label="Download JSON proof" class="inline-flex items-center gap-1 text-[9px] font-black uppercase text-secondary hover:text-primary-container transition-colors">
                             <span class="material-symbols-outlined text-[12px]">download</span> JSON Proof
                         </a>
                         <button onclick="showVersionHistory(${d.block_index})" aria-label="View version history" class="inline-flex items-center gap-1 text-[9px] font-black uppercase text-blue-600 hover:text-blue-800 transition-colors">
@@ -1417,8 +1419,8 @@ function loadChain(silent = false) {
                     ${d.ipfs_cid ? `
                     <div class="flex items-center gap-2">
                         <span class="text-[8px] font-black text-blue-400 uppercase">IPFS Node:</span>
-                        <a href="https://ipfs.io/ipfs/${d.ipfs_cid}" target="_blank" class="text-[10px] font-mono text-blue-600 hover:underline">
-                            ${d.ipfs_cid.slice(0, 12)}...
+                        <a href="https://ipfs.io/ipfs/${encodeURIComponent(d.ipfs_cid)}" target="_blank" class="text-[10px] font-mono text-blue-600 hover:underline">
+                            ${escapeHtml(d.ipfs_cid.slice(0, 12))}...
                         </a>
                     </div>
                     ` : ''}
@@ -1430,7 +1432,7 @@ function loadChain(silent = false) {
                     ` : ''}
                     ${merkleBadge}
                 </td>
-                <td class="px-6 py-5 text-xs font-semibold text-slate-600">${d.uploaded_by || 'Anonymous'}</td>
+                <td class="px-6 py-5 text-xs font-semibold text-slate-600">${escapeHtml(d.uploaded_by || 'Anonymous')}</td>
                 <td class="px-6 py-5 text-xs text-on-surface-variant font-medium">${new Date(d.upload_timestamp).toLocaleString()}</td>
                 <td class="px-6 py-5">${status}</td></tr>`;
         }).join('');
@@ -1515,14 +1517,14 @@ function loadAudit(silent = false, documentId = null) {
             const rowClass = isTamper ? 'bg-red-50 text-red-900' : 'hover:bg-slate-50/50';
             const actionBadge = isTamper
                 ? `<span class="px-2 py-0.5 rounded-full bg-red-600 text-white text-[9px] font-black uppercase">TAMPER DETECTED</span>`
-                : `<span class="px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 text-[9px] font-bold uppercase">${log.action}</span>`;
+                : `<span class="px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 text-[9px] font-bold uppercase">${escapeHtml(log.action)}</span>`;
 
             return `<tr class="${rowClass} transition-colors">
                 <td class="px-6 py-5 text-xs font-medium">${new Date(log.timestamp).toLocaleString()}</td>
-                <td class="px-6 py-5 text-xs font-bold">${fname} <span class="text-[10px] text-slate-400 font-normal ml-1">#${log.document_id}</span></td>
+                <td class="px-6 py-5 text-xs font-bold">${escapeHtml(fname)} <span class="text-[10px] text-slate-400 font-normal ml-1">#${log.document_id}</span></td>
                 <td class="px-6 py-5">${actionBadge}</td>
-                <td class="px-6 py-5 text-xs font-semibold">${log.actor}</td>
-                <td class="px-6 py-5 text-xs text-on-surface-variant leading-relaxed">${log.details}</td>
+                <td class="px-6 py-5 text-xs font-semibold">${escapeHtml(log.actor)}</td>
+                <td class="px-6 py-5 text-xs text-on-surface-variant leading-relaxed">${escapeHtml(log.details)}</td>
                 <td class="px-6 py-5 text-xs">
                     ${!documentId ? `<button onclick="loadAudit(false, ${log.document_id})" aria-label="View history for block ${log.document_id}" class="text-secondary font-bold hover:underline">View History</button>` : ''}
                 </td>
@@ -2104,7 +2106,7 @@ async function showVersionHistory(id) {
     document.body.appendChild(overlay);
 
     try {
-        const versions = await fetch(`/api/chain/document/${id}/versions`).then(r => r.json());
+        const versions = await secureFetch(`/api/chain/document/${id}/versions`).then(r => r.json());
         const content = document.getElementById('version-timeline-content');
 
         if (!versions.length) {
@@ -2532,7 +2534,7 @@ async function downloadReport(id) {
     btn.innerHTML = '<span class="material-symbols-outlined text-sm animate-spin">progress_activity</span> Exporting...';
 
     try {
-        const response = await fetch(`/api/chain/document/${id}/report`);
+        const response = await secureFetch(`/api/chain/document/${id}/report`);
         if (!response.ok) {
             const err = await response.json();
             throw new Error(err.error || "Failed to generate report");
@@ -2652,11 +2654,11 @@ function renderUserTable(users) {
                 <td class="px-8 py-5">
                     <div class="flex items-center gap-3">
                         <div class="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-primary dark:text-[#E9C176] font-black text-sm uppercase">
-                            ${user.name.charAt(0)}
+                            ${escapeHtml(user.name).charAt(0)}
                         </div>
                         <div>
-                            <p class="text-sm font-bold text-primary dark:text-white leading-tight">${user.name}${isSelf ? ' <span class="text-[9px] text-slate-400 font-normal italic">(You)</span>' : ''}</p>
-                            <p class="text-xs text-slate-400 dark:text-slate-500 font-medium">${user.email}</p>
+                            <p class="text-sm font-bold text-primary dark:text-white leading-tight">${escapeHtml(user.name)}${isSelf ? ' <span class="text-[9px] text-slate-400 font-normal italic">(You)</span>' : ''}</p>
+                            <p class="text-xs text-slate-400 dark:text-slate-500 font-medium">${escapeHtml(user.email)}</p>
                         </div>
                     </div>
                 </td>
@@ -2675,7 +2677,7 @@ function renderUserTable(users) {
                     ` : `
                         <button 
                             onclick="toggleAuthority(${user.id}, '${user.role === 'authority' ? 'user' : 'authority'}', this)"
-                            aria-label="${user.role === 'authority' ? 'Revoke authority' : 'Promote to authority'} for ${user.name}"
+                            aria-label="${user.role === 'authority' ? 'Revoke authority' : 'Promote to authority'} for ${escapeHtml(user.name)}"
                             class="inline-flex items-center gap-2 px-4 py-2 ${user.role === 'authority' ? 'bg-red-50 text-red-600 hover:bg-red-100 border-red-100' : 'bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-100'} rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all border active:scale-95"
                         >
                             <span class="material-symbols-outlined text-sm">${user.role === 'authority' ? 'person_remove' : 'verified'}</span>
@@ -2703,7 +2705,7 @@ async function toggleAuthority(userId, newRole, btn) {
                 <span class="material-symbols-outlined">check_circle</span>
                 <div>
                     <p class="font-bold text-sm">Update Successful</p>
-                    <p class="text-[10px] opacity-80 uppercase font-black">${res.message}</p>
+                    <p class="text-[10px] opacity-80 uppercase font-black">${escapeHtml(res.message)}</p>
                 </div>
             `;
             document.body.appendChild(toast);
