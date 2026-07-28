@@ -79,7 +79,9 @@ async function processDocument(data, job = null) {
         
         if (gridfsId) {
             const ext = path.extname(originalname);
-            filePath = path.resolve('tmp', `proc_${Date.now()}${ext}`);
+            const tmpDir = path.resolve(__dirname, '..', '..', 'tmp');
+            if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+            filePath = path.join(tmpDir, `proc_${crypto.randomUUID()}${ext}`);
             const writeStream = fs.createWriteStream(filePath);
             
             const downloadStream = bucket.openDownloadStream(new mongoose.Types.ObjectId(gridfsId));

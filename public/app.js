@@ -699,8 +699,8 @@ function renderGlobalUpload(app) {
                             <span class="material-symbols-outlined text-secondary text-3xl">cloud_upload</span>
                         </div>
                         <h3 class="text-xl font-semibold text-primary mb-2" id="drop-label">Drag and drop file</h3>
-                        <p class="text-on-surface-variant mb-6 text-sm">Limit 10MB per file • PDF, DOCX, PNG, JPG, TXT</p>
-                        <input type="file" id="file-input" class="hidden" accept=".pdf,.docx,.png,.jpg,.jpeg,.txt"/>
+                        <p class="text-on-surface-variant mb-6 text-sm">Limit 10MB per file • PNG, JPG, TXT</p>
+                        <input type="file" id="file-input" class="hidden" accept=".png,.jpg,.jpeg,.txt"/>
                         <button type="button" id="browse-btn" class="bg-primary text-white px-8 py-3 rounded-xl font-semibold shadow-lg shadow-primary/20 hover:bg-opacity-90 active:scale-95 transition-all">Browse Files</button>
                     </div>
                     <div class="bg-surface-container-lowest rounded-xl p-8 space-y-6 shadow-sm">
@@ -1877,8 +1877,8 @@ function renderGlobalBatch(app) {
                         <span class="material-symbols-outlined text-secondary text-3xl">folder_open</span>
                     </div>
                     <h3 class="text-xl font-semibold text-primary mb-2" id="batch-drop-label">Drag & drop files here</h3>
-                    <p class="text-on-surface-variant text-sm mb-6">Up to 20 files • PDF, DOCX, PNG, JPG, TXT</p>
-                    <input type="file" id="batch-file-input" class="hidden" multiple accept=".pdf,.docx,.png,.jpg,.jpeg,.txt"/>
+                    <p class="text-on-surface-variant text-sm mb-6">Up to 20 files • PNG, JPG, TXT</p>
+                    <input type="file" id="batch-file-input" class="hidden" multiple accept=".png,.jpg,.jpeg,.txt"/>
                     <button type="button" id="batch-browse-btn" class="bg-primary text-white px-8 py-3 rounded-xl font-semibold shadow-lg shadow-primary/20 hover:bg-opacity-90 active:scale-95 transition-all">Browse Files</button>
                 </div>
 

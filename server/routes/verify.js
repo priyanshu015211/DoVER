@@ -37,10 +37,12 @@ const { verifyLimiter }         = require('../middleware/limiters');
 const { recordSignal }          = require('../utils/abuse');
 const { resolveSignatureStatus } = require('../utils/verificationService');
 
-if (!fs.existsSync('uploads')) fs.mkdirSync('uploads');
-if (!fs.existsSync('tmp'))     fs.mkdirSync('tmp');
+const uploadsDir = path.resolve(__dirname, '..', '..', 'uploads');
+const tmpDir = path.resolve(__dirname, '..', '..', 'tmp');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+if (!fs.existsSync(tmpDir))     fs.mkdirSync(tmpDir, { recursive: true });
 
-const upload = multer({ dest: 'tmp/' });
+const upload = multer({ dest: tmpDir });
 
 /**
  * Determines whether a user is permitted to access the full proof bundle for a document.
@@ -350,7 +352,9 @@ router.post('/', verifyLimiter, upload.single('file'), async (req, res) => {
                 'text/plain': '.txt',
             };
             const ext = extMap[doc.file_type] || '';
-            tmpPath   = path.resolve('tmp', `verify_${Date.now()}_${storageId}${ext}`);
+            const tmpDir = path.resolve(__dirname, '..', '..', 'tmp');
+            if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+            tmpPath = path.join(tmpDir, `verify_${crypto.randomUUID()}_${storageId}${ext}`);
 
             const downloadStream = bucket.openDownloadStream(
                 new mongoose.Types.ObjectId(storageId)

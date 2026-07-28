@@ -39,7 +39,8 @@ const updateStmt = db.prepare(`UPDATE documents SET uploader_email = ? WHERE blo
 // Transaction for atomic update
 const migrateTransaction = db.transaction((docs) => {
     for (const doc of docs) {
-        if (!doc.uploaded_by) {
+        if (!doc.uploaded_by || doc.uploaded_by.trim() === '') {
+            updateStmt.run('legacy-archive@dover.io', doc.block_index);
             skippedCount++;
             continue;
         }

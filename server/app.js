@@ -272,7 +272,9 @@ setInterval(async () => {
                 continue;
             }
 
-            let tmpPath = path.resolve('tmp', `bg_verify_${crypto.randomUUID()}`);
+            const tmpDir = path.resolve(__dirname, '..', 'tmp');
+            if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+            let tmpPath = path.join(tmpDir, `bg_verify_${crypto.randomUUID()}`);
             try {
                 // Reconstruct from GridFS using the module-level MongooseTypes import
                 const downloadStream = bucket.openDownloadStream(new MongooseTypes.ObjectId(storageId));
