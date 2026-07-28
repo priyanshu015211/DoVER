@@ -340,7 +340,7 @@ router.post('/', verifyLimiter, upload.single('file'), async (req, res) => {
             const storageId = doc.storage_id || doc.filename;
 
             if (!mongoose.Types.ObjectId.isValid(storageId)) {
-                return res.status(400).json({ success: false, error: 'Invalid or legacy document ID' });
+                return res.status(400).json({ success: false, error: 'Legacy file content verification is no longer supported' });
             }
 
             const extMap = {

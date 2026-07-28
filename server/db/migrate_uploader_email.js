@@ -52,10 +52,12 @@ const migrateTransaction = db.transaction((docs) => {
             updateStmt.run(matchedEmails[0], doc.block_index);
             backfilledCount++;
         } else if (matchedEmails.length > 1) {
-            // Multiple users with the same name, ambiguous
+            // Multiple users with the same name, ambiguous. Backfill to stable archive owner.
+            updateStmt.run('legacy-archive@dover.io', doc.block_index);
             ambiguousCount++;
         } else {
-            // No matching user found
+            // No matching user found. Backfill to stable archive owner.
+            updateStmt.run('legacy-archive@dover.io', doc.block_index);
             skippedCount++;
         }
     }

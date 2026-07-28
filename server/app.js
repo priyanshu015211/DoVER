@@ -263,7 +263,14 @@ setInterval(async () => {
         for (const doc of docs) {
             const storageId = doc.storage_id || doc.filename;
             // Skip legacy local files that aren't valid MongoDB ObjectIds (24 hex chars)
-            if (!/^[0-9a-fA-F]{24}$/.test(storageId)) continue;
+            if (!/^[0-9a-fA-F]{24}$/.test(storageId)) {
+                try {
+                    db.prepare('UPDATE documents SET last_checked_at = CURRENT_TIMESTAMP WHERE block_index = ?').run(doc.block_index);
+                } catch (e) {
+                    console.error('Failed to update skip timestamp for legacy document', e);
+                }
+                continue;
+            }
 
             let tmpPath = path.resolve('tmp', `bg_verify_${crypto.randomUUID()}`);
             try {

@@ -377,7 +377,7 @@ router.get('/document/:id/certified', async (req, res) => {
         const storageId = doc.storage_id || doc.filename;
         
         if (!mongoose.Types.ObjectId.isValid(storageId)) {
-            throw new Error('Invalid storage ID for certification');
+            throw new Error('Legacy file content certification is no longer supported');
         }
 
         const downloadStream = bucket.openDownloadStream(new mongoose.Types.ObjectId(storageId));
