@@ -11,7 +11,7 @@ const forensics = require('../utils/forensics');
 const gemini = require('../utils/gemini');
 const signature = require('../utils/signature');
 const crypto = require('crypto');
-const { getBucket } = require('../db/mongodb');
+const { getBucket, mongoose } = require('../db/mongodb');
 const { emailsEqual } = require('../utils/email');
 const { requireAuth } = require('../middleware/auth');
 
@@ -65,6 +65,7 @@ router.post('/', uploadLimiter, (req, res) => {
         if (err) return res.status(400).json({ success: false, error: err.message });
 
         const tmpFilePath = req.file ? path.resolve(req.file.path) : null;
+        let gridfsId = null;
 
         try {
             if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
@@ -116,7 +117,7 @@ router.post('/', uploadLimiter, (req, res) => {
                 metadata: { uploadedBy, uploaderEmail, fileHash }
             });
 
-            const gridfsId = uploadStream.id;
+            gridfsId = uploadStream.id;
             fs.createReadStream(tmpFilePath).pipe(uploadStream);
 
             await new Promise((resolve, reject) => {
@@ -167,7 +168,10 @@ router.post('/', uploadLimiter, (req, res) => {
         } catch (error) {
             console.error('[UPLOAD_ERROR]', error);
             if (tmpFilePath && fs.existsSync(tmpFilePath)) fs.unlinkSync(tmpFilePath);
-            res.status(500).json({ success: false, error: error.message });
+            if (gridfsId) {
+                try { await getBucket().delete(new mongoose.Types.ObjectId(gridfsId)); } catch(e) { console.error('GridFS rollback failed', e); }
+            }
+            res.status(500).json({ success: false, error: 'UPLOAD_FAILED' });
         }
     });
 });
@@ -205,6 +209,7 @@ router.post('/batch-upload', uploadLimiter, (req, res) => {
 
             for (const file of req.files) {
                 const tmpFilePath = path.resolve(file.path);
+                let gridfsId = null;
                 
                 try {
                     // Calculate hash early for consistency
@@ -216,7 +221,7 @@ router.post('/batch-upload', uploadLimiter, (req, res) => {
                         metadata: { uploadedBy, uploaderEmail, fileHash, batchId }
                     });
 
-                    const gridfsId = uploadStream.id;
+                    gridfsId = uploadStream.id;
                     fs.createReadStream(tmpFilePath).pipe(uploadStream);
 
                     await new Promise((resolve, reject) => {
@@ -242,6 +247,11 @@ router.post('/batch-upload', uploadLimiter, (req, res) => {
                         const result = await processDocument(jobData);
                         results.push(result);
                     }
+                } catch (innerError) {
+                    if (gridfsId) {
+                        try { await bucket.delete(new mongoose.Types.ObjectId(gridfsId)); } catch(e) { console.error('GridFS batch rollback failed', e); }
+                    }
+                    throw innerError;
                 } finally {
                     // Cleanup local temp file
                     if (fs.existsSync(tmpFilePath)) {
@@ -260,7 +270,7 @@ router.post('/batch-upload', uploadLimiter, (req, res) => {
             });
         } catch (error) {
             console.error('[BATCH_ERROR]', error);
-            res.status(500).json({ success: false, error: error.message });
+            res.status(500).json({ success: false, error: 'BATCH_UPLOAD_FAILED' });
         } finally {
             // Failsafe cleanup for any files that weren't processed due to early exit
             if (req.files && Array.isArray(req.files)) {

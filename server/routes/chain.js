@@ -322,7 +322,7 @@ router.post('/document/:id/analyze', async (req, res) => {
 
     } catch (error) {
         console.error('[AI_ANALYZE_ERROR]', error);
-        res.status(500).json({ success: false, error: 'AI Analysis failed: ' + error.message });
+        res.status(500).json({ success: false, error: 'AI_ANALYSIS_FAILED' });
     }
 });
 
@@ -346,7 +346,7 @@ router.get('/document/:id/report', async (req, res) => {
         res.send(pdfBuffer);
     } catch (error) {
         console.error('[REPORT_ENDPOINT_ERROR]', error);
-        res.status(500).json({ success: false, error: 'Failed to generate report: ' + error.message });
+        res.status(500).json({ success: false, error: 'REPORT_GENERATION_FAILED' });
     }
 });
 
@@ -427,7 +427,7 @@ router.get('/document/:id/certified', async (req, res) => {
 
     } catch (error) {
         console.error('[CERTIFY_ENDPOINT_ERROR]', error);
-        res.status(500).json({ success: false, error: 'Certification failed: ' + error.message });
+        res.status(500).json({ success: false, error: 'CERTIFICATION_FAILED' });
     }
 });
 

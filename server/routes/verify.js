@@ -257,7 +257,7 @@ router.get('/:hash', verifyLimiter, async (req, res) => {
         });
 
     } catch (error) {
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, error: 'VERIFICATION_FAILED' });
     }
 });
 
@@ -588,7 +588,7 @@ router.post('/', verifyLimiter, upload.single('file'), async (req, res) => {
     } catch (error) {
         console.error('[VERIFY_ERROR]', error);
         if (tmpPath && fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, error: 'VERIFICATION_FAILED' });
     }
 });
 
