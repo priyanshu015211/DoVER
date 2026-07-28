@@ -171,6 +171,10 @@ router.get('/:hash', verifyLimiter, async (req, res) => {
             return res.status(404).json({ success: false, status: 'invalid', error: 'Hash not found in chain' });
         }
 
+        if (!canAccessProof(req.user, doc)) {
+            return res.status(403).json({ success: false, error: 'Permission denied' });
+        }
+
         if (doc.is_tampered) {
             return res.json({ success: true, status: 'tampered', block_index: doc.block_index });
         }
