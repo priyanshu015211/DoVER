@@ -69,6 +69,13 @@ async function processDocument(data, job = null) {
     };
 
     try {
+        if (data.batch_id && gridfsId) {
+            try {
+                db.prepare('UPDATE batch_items SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE batch_id = ? AND storage_id = ?')
+                  .run('processing', data.batch_id, gridfsId);
+            } catch (e) { console.error('[PROCESSOR] Failed to mark batch_item processing:', e.message); }
+        }
+
         const bucket = getBucket();
         if (!bucket) {
             throw new Error('MongoDB connection not ready');
@@ -213,6 +220,12 @@ async function processDocument(data, job = null) {
             const finalExisting = db.prepare('SELECT block_index FROM documents WHERE file_hash = ? AND uploader_email = ?').get(fileHash, uploaderEmail);
             if (finalExisting) {
                 if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
+                if (data.batch_id && gridfsId) {
+                    try {
+                        db.prepare('UPDATE batch_items SET status = ?, failed_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE batch_id = ? AND storage_id = ?')
+                          .run('failed', 'Duplicate file', data.batch_id, gridfsId);
+                    } catch (e) { console.error('[PROCESSOR] Failed to mark batch_item as duplicate:', e.message); }
+                }
                 return { success: false, error: 'Duplicate', existing_id: finalExisting.block_index };
             }
         }
@@ -229,8 +242,11 @@ async function processDocument(data, job = null) {
             if (cid) db.prepare('UPDATE documents SET ipfs_cid = ? WHERE block_index = ?').run(cid, documentId);
         }).catch(() => {});
 
+        const action = parent_document_id ? 'VERSION_CREATE' : 'UPLOAD';
+        const actionDetails = parent_document_id ? `New version ${version_number || 1} created for document ${parent_document_id}` : `File ${originalname} processed ${job ? 'via queue' : 'instantly'}`;
+
         db.prepare(`INSERT INTO audit_log (document_id, action, actor, details) VALUES (?, ?, ?, ?)`)
-            .run(documentId, 'UPLOAD', uploadedBy, `File ${originalname} processed ${job ? 'via queue' : 'instantly'}`);
+            .run(documentId, action, uploadedBy, actionDetails);
 
         if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
@@ -238,6 +254,13 @@ async function processDocument(data, job = null) {
 
         const qrData = `https://${process.env.DOMAIN || 'localhost:3000'}/verify.html?hash=${blockHash}`;
         const qrImageBase64 = await qr.generateQR(qrData);
+
+        if (data.batch_id) {
+            try {
+                db.prepare('UPDATE batch_items SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE batch_id = ? AND storage_id = ?')
+                  .run('completed', data.batch_id, gridfsId);
+            } catch (e) { console.error('[PROCESSOR] Failed to update batch_items:', e.message); }
+        }
 
         return {
             success: true,
@@ -250,6 +273,14 @@ async function processDocument(data, job = null) {
     } catch (error) {
         if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
         console.error(`[PROCESSOR] ✗ Processing failed:`, error.message);
+        
+        if (data.batch_id) {
+            try {
+                db.prepare('UPDATE batch_items SET status = ?, failed_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE batch_id = ? AND storage_id = ?')
+                  .run('failed', error.message, data.batch_id, gridfsId);
+            } catch (e) { console.error('[PROCESSOR] Failed to update batch_items on error:', e.message); }
+        }
+        
         throw error; 
     }
 }

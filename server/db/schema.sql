@@ -29,6 +29,14 @@ CREATE TABLE IF NOT EXISTS documents (
     last_checked_at DATETIME
 );
 
+-- ── Performance Indexes ──
+-- Hash lookup (core registry operation) should complete in sub-millisecond time.
+CREATE INDEX IF NOT EXISTS idx_documents_file_hash ON documents(file_hash);
+CREATE INDEX IF NOT EXISTS idx_documents_block_hash ON documents(block_hash);
+CREATE INDEX IF NOT EXISTS idx_documents_uploader_timestamp ON documents(uploaded_by, upload_timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_document_id ON audit_log(document_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_key_registry_fingerprint ON key_registry(fingerprint);
+
 CREATE TABLE IF NOT EXISTS audit_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     document_id INTEGER NOT NULL,

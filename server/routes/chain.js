@@ -9,6 +9,7 @@ const { getBucket, mongoose } = require('../db/mongodb');
 const fs = require('fs');
 const path = require('path');
 const { emailsEqual } = require('../utils/email');
+const auditBundle = require('../utils/auditBundle');
 
 /**
  * Helper to check if a user can access the full content/files of a document.
@@ -149,51 +150,55 @@ router.get('/batch/:batch_id/status', async (req, res) => {
         // but since we don't store batch->job mapping in DB yet, we'll keep the logic but 
         // optimize it to not pull every job's full data if possible.
         
-        const [waiting, active, completed, failed] = await Promise.all([
-            documentQueue.getWaiting(),
-            documentQueue.getActive(),
-            documentQueue.getCompleted(),
-            documentQueue.getFailed()
-        ]);
+        // Read from DB batch_items table as the canonical source
+        const batchItems = db.prepare('SELECT * FROM batch_items WHERE batch_id = ?').all(batchId);
 
-        const allJobs = [...waiting, ...active, ...completed, ...failed];
-        const batchJobs = allJobs.filter(job => job && job.data && job.data.batch_id === batchId);
-
-        if (batchJobs.length === 0) {
+        if (batchItems.length === 0) {
             return res.status(404).json({ success: false, error: 'No jobs found for this batch_id' });
         }
 
         // RBAC: Ensure user owns this batch OR is authority
         const isAuthority = req.user && req.user.role === 'authority';
-        const ownsBatch = req.user && batchJobs.every(j => emailsEqual(j.data.uploaderEmail, req.user.email));
+        const ownsBatch = req.user && batchItems.every(j => emailsEqual(j.uploader_email, req.user.email));
         
         if (!req.user || (!isAuthority && !ownsBatch)) {
             return res.status(403).json({ success: false, error: 'Permission denied' });
         }
 
-        const waitingIds = waiting.map(j => j.id);
-        const activeIds = active.map(j => j.id);
-        const failedIds = failed.map(j => j.id);
-        const completedIds = completed.map(j => j.id);
-
-        // Map each job to a clean status object
-        const jobs = batchJobs.map(j => {
-            let status;
-            if (waitingIds.includes(j.id))        status = 'queued';
-            else if (activeIds.includes(j.id))    status = 'processing';
-            else if (failedIds.includes(j.id))    status = 'failed';
-            else if (completedIds.includes(j.id)) status = 'completed';
-            else                                  status = 'unknown';
+        // Map each item to a clean status object
+        const jobs = batchItems.map(j => {
+            // Check if document was created
+            let document_id = null;
+            if (j.status === 'completed') {
+                const doc = db.prepare('SELECT block_index FROM documents WHERE storage_id = ?').get(j.storage_id);
+                if (doc) document_id = doc.block_index;
+            }
 
             return {
-                job_id: j.id,
-                filename: j.data.originalname,
-                status,
-                progress: j._progress || 0,
-                error: j.failedReason || null,
-                document_id: j.returnvalue ? j.returnvalue.document_id : null
+                job_id: j.job_id,
+                storage_id: j.storage_id,
+                filename: j.original_filename || 'Unknown file', 
+                status: j.status,
+                progress: 0,
+                error: j.failed_reason || null,
+                retryable: j.status === 'failed',
+                document_id: document_id
             };
         });
+
+        // Enrich with active progress from Bull if status is queued/processing
+        try {
+            const activeJobs = await documentQueue.getActive();
+            activeJobs.forEach(job => {
+                if (job && job.data && job.data.batch_id === batchId) {
+                    const match = jobs.find(j => j.storage_id === job.data.storageId);
+                    if (match) {
+                        match.progress = job._progress || 0;
+                        match.filename = job.data.originalname;
+                    }
+                }
+            });
+        } catch (e) {}
 
         const counts = jobs.reduce((acc, j) => {
             acc[j.status] = (acc[j.status] || 0) + 1;
@@ -285,6 +290,52 @@ router.get('/document/:id/versions', (req, res) => {
     }
 });
 
+router.get('/document/:id/timeline', (req, res) => {
+    try {
+        const id = parseInt(req.params.id);
+        
+        let currentDoc = db.prepare('SELECT block_index, parent_document_id, uploaded_by, uploader_email, filename FROM documents WHERE block_index = ?').get(id);
+        if (!currentDoc) {
+            return res.status(404).json({ success: false, error: 'Document not found' });
+        }
+
+        // RBAC check
+        if (!canAccessFullContent(req.user, currentDoc)) {
+            const isLegacy = !currentDoc.uploader_email && currentDoc.uploaded_by;
+            return res.status(403).json({ success: false, error: isLegacy ? 'Legacy document requires authority approval' : 'Permission denied' });
+        }
+
+        const targetFilename = currentDoc.filename;
+        const targetEmail = currentDoc.uploader_email;
+
+        // Trace back to the root document
+        let rootId = currentDoc.block_index;
+        let parentId = currentDoc.parent_document_id;
+        let safety = 0;
+        
+        while (parentId !== null && safety < 5000) {
+            const parent = db.prepare('SELECT block_index, parent_document_id, filename, uploader_email FROM documents WHERE block_index = ?').get(parentId);
+            
+            // STRICT LINEAGE: Stop if parent metadata mismatch
+            if (!parent || parent.filename !== targetFilename || !emailsEqual(parent.uploader_email, targetEmail)) {
+                break;
+            }
+
+            rootId = parent.block_index;
+            parentId = parent.parent_document_id;
+            safety++;
+        }
+
+        const isAuthority = req.user.role === 'authority';
+        const events = auditBundle.generateTimelineJSON(db, currentDoc, isAuthority);
+
+        res.json({ success: true, timeline: events });
+    } catch (error) {
+        console.error('[TIMELINE_ERROR]', error);
+        res.status(500).json({ success: false, error: 'Failed to retrieve timeline' });
+    }
+});
+
 /**
  * Manual trigger for Gemini AI analysis.
  * Restricted to authorities.
@@ -372,53 +423,9 @@ router.get('/document/:id/certified', async (req, res) => {
             return res.status(403).json({ success: false, error: isLegacy ? 'Legacy document requires authority approval' : 'Permission denied' });
         }
 
-        // 2. Fetch original file from GridFS
+        // 2. Build Certified PDF
         const bucket = getBucket();
-        const storageId = doc.storage_id || doc.filename;
-        
-        if (!mongoose.Types.ObjectId.isValid(storageId)) {
-            throw new Error('Legacy file content certification is no longer supported');
-        }
-
-        const downloadStream = bucket.openDownloadStream(new mongoose.Types.ObjectId(storageId));
-        const chunks = [];
-        for await (const chunk of downloadStream) {
-            chunks.push(chunk);
-        }
-        let fileBuffer = Buffer.concat(chunks);
-
-        // ── Image-to-PDF Conversion (CRITICAL FIX) ──
-        // If the file is an image, we MUST wrap it in a PDF before signing.
-        if (doc.file_type.includes('image') || /jpg|jpeg|png/.test(doc.filename.toLowerCase())) {
-            console.log(`[CERTIFY] Converting ${doc.file_type} to PDF container...`);
-            const pdfDoc = await PDFDocument.create();
-            const image = doc.file_type.includes('png') ? await pdfDoc.embedPng(fileBuffer) : await pdfDoc.embedJpg(fileBuffer);
-            
-            const page = pdfDoc.addPage([image.width, image.height]);
-            page.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height });
-            
-            fileBuffer = Buffer.from(await pdfDoc.save());
-        }
-
-        // 3. Prepare Proof Data for embedding
-        const proof = {
-            block_index: doc.block_index,
-            block_hash: doc.block_hash,
-            file_hash: doc.file_hash,
-            timestamp: doc.upload_timestamp,
-            uploaded_by: doc.uploaded_by,
-            forensic_score: doc.forensic_score ? JSON.parse(doc.forensic_score) : null,
-            ocr_hash: doc.ocr_hash,
-            system: 'DoVER Decentralized Vault'
-        };
-
-        // 4. Sign and Certify
-        console.log(`[CERTIFY] Generating signed PDF for Block #${id}...`);
-        const signedBuffer = await signatureEngine.signPdf(fileBuffer, {
-            reason: 'Official Document Certification',
-            location: 'DoVER Digital Vault',
-            proof: proof
-        });
+        const signedBuffer = await auditBundle.generateCertifiedPDF(doc, bucket, mongoose, signatureEngine);
 
         // 5. Send Result
         res.setHeader('Content-Type', 'application/pdf');
@@ -428,6 +435,57 @@ router.get('/document/:id/certified', async (req, res) => {
     } catch (error) {
         console.error('[CERTIFY_ENDPOINT_ERROR]', error);
         res.status(500).json({ success: false, error: 'CERTIFICATION_FAILED' });
+    }
+});
+
+/**
+ * Official Audit Bundle Export.
+ * Restricted to authorities.
+ */
+router.get('/document/:id/bundle', async (req, res) => {
+    try {
+        if (req.user.role !== 'authority') {
+            return res.status(403).json({ success: false, error: 'Permission denied' });
+        }
+        
+        const id = parseInt(req.params.id);
+        
+        // 1. Fetch metadata from SQLite
+        const doc = db.prepare('SELECT * FROM documents WHERE block_index = ?').get(id);
+        if (!doc) {
+            return res.status(404).json({ success: false, error: 'Document not found' });
+        }
+
+        // 2. Fetch everything
+        const bucket = getBucket();
+        
+        console.log(`[BUNDLE] Generating export bundle for Block #${id}...`);
+        
+        const [pdfBuffer, timelineJSON] = await Promise.all([
+            auditBundle.generateCertifiedPDF(doc, bucket, mongoose, signatureEngine),
+            auditBundle.generateTimelineJSON(db, doc, true)
+        ]);
+
+        const proofJSON = auditBundle.generateProofJSON(doc);
+
+        const bundle = {
+            bundle_version: "1.0",
+            generated_at: new Date().toISOString(),
+            document_id: doc.block_index,
+            proof: proofJSON,
+            timeline: timelineJSON,
+            certified_pdf_base64: pdfBuffer.toString('base64')
+        };
+
+        // Audit the bundle download
+        db.prepare(`INSERT INTO audit_log (document_id, action, actor, details) VALUES (?, ?, ?, ?)`)
+            .run(doc.block_index, 'AUDIT_BUNDLE_DOWNLOADED', req.user.name, `Authority ${req.user.name} exported the audit bundle`);
+
+        res.json({ success: true, bundle: bundle });
+
+    } catch (error) {
+        console.error('[BUNDLE_ENDPOINT_ERROR]', error);
+        res.status(500).json({ success: false, error: 'BUNDLE_GENERATION_FAILED' });
     }
 });
 

@@ -25,7 +25,8 @@ const hasher    = require('../utils/hasher');
 const ocr       = require('../utils/ocr');
 const gemini    = require('../utils/gemini');
 const forensics = require('../utils/forensics');
-const signature = require('../utils/signature');
+const signatureEngine = require('../utils/signature_engine');
+const auditBundle = require('../utils/auditBundle');
 const crypto    = require('crypto');
 const fs        = require('fs');
 const path      = require('path');
@@ -51,8 +52,13 @@ const upload = multer({ dest: tmpDir });
  * Access is granted when ANY of the following is true:
  *  1. The user holds the 'authority' role (platform-wide admin/authority access).
  *  2. The user's email matches the uploader_email stored on the document (case-insensitive).
- *  3. The user's display name matches the uploaded_by field — covers legacy records that
- *     pre-date the uploader_email column and therefore have no email on the document.
+ *
+ * There is deliberately no display-name fallback: uploaded_by is a free-text,
+ * non-unique field and using it as an ownership signal let any user who
+ * registered with a matching display name access another user's proof
+ * bundle (see #102). Every document is expected to carry a uploader_email
+ * after the backfill migration; documents where the legacy uploaded_by name
+ * was ambiguous across multiple users fall through to authority-only access.
  *
  * The function deliberately returns false for any falsy user value so it can safely be
  * called without an additional null-guard at the call site.
@@ -121,21 +127,7 @@ router.get('/:id/proof', verifyLimiter, (req, res) => {
         // downloadable file would expose key material to any party who later receives
         // the proof document.  Verifiers who need the public key should fetch it from
         // the canonical /api/public/crl or key-registry endpoints instead.
-        const proof = {
-            document_id: doc.block_index,
-            filename: doc.filename,
-            uploaded_by: doc.uploaded_by,
-            upload_timestamp: doc.upload_timestamp,
-            file_hash: doc.file_hash,
-            block_hash: doc.block_hash,
-            block_index: doc.block_index,
-            prev_hash: doc.prev_hash,
-            signature: doc.signature,
-            signer_fingerprint: doc.signer_fingerprint || null,
-            ocr_text_stored: doc.ocr_text,
-            forensic_score: doc.forensic_score ? JSON.parse(doc.forensic_score) : null,
-            verified_at: new Date().toISOString()
-        };
+        const proof = auditBundle.generateProofJSON(doc);
 
         // Audit successful proof downloads for compliance / access-log purposes.
         try {

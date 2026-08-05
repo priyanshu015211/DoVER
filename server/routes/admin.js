@@ -9,6 +9,21 @@ const crypto = require('crypto');
 const PKIUtils = require('../utils/pki');
 
 /**
+ * Helper to explicitly tie system-wide user events to their documents
+ * so they surface natively in the unified timeline.
+ */
+function logToUserDocuments(db, userId, action, actor, details) {
+    const user = db.prepare('SELECT email FROM users WHERE id = ?').get(userId);
+    if (user && user.email) {
+        const userDocs = db.prepare('SELECT block_index FROM documents WHERE LOWER(uploader_email) = LOWER(?)').all(user.email);
+        const insertAudit = db.prepare(`INSERT INTO audit_log (document_id, action, actor, details) VALUES (?, ?, ?, ?)`);
+        for (const doc of userDocs) {
+            insertAudit.run(doc.block_index, action, actor, details);
+        }
+    }
+}
+
+/**
  * GET /api/admin/users
  * Returns a list of all users.
  * Restricted to authorities.
@@ -117,6 +132,7 @@ router.post('/keys/request', requireAuth, (req, res) => {
         db.prepare(`INSERT INTO audit_log (document_id, action, actor, details) VALUES (?, ?, ?, ?)`)
             .run(0, 'KEY_REQUEST_SUBMITTED', req.user.email || req.user.id,
                 `Key request submitted for business: ${businessName}`);
+        logToUserDocuments(db, req.user.id, 'KEY_REQUEST_SUBMITTED', req.user.email || req.user.id, `Key request submitted for business: ${businessName}`);
 
         res.json({ success: true, message: 'Key request submitted for review' });
     } catch (error) {
@@ -168,6 +184,7 @@ router.post('/keys/approve/:id', requireAuthority, async (req, res) => {
         // Audit Log
         db.prepare(`INSERT INTO audit_log (document_id, action, actor, details) VALUES (?, ?, ?, ?)`)
           .run(0, 'KEY_ISSUED', req.user.name, `Approved key for ${request.business_name} (Fingerprint: ${fingerprint})`);
+        logToUserDocuments(db, request.user_id, 'KEY_ISSUED', req.user.name, `Approved key for ${request.business_name} (Fingerprint: ${fingerprint})`);
 
         // Send P12
         res.setHeader('Content-Type', 'application/x-pkcs12');
@@ -202,6 +219,7 @@ router.post('/keys/revoke/:id', requireAuthority, (req, res) => {
         // Audit Log
         db.prepare(`INSERT INTO audit_log (document_id, action, actor, details) VALUES (?, ?, ?, ?)`)
           .run(0, 'KEY_REVOKED', req.user.name, `Revoked key ID ${keyId} (Fingerprint: ${key.fingerprint})`);
+        logToUserDocuments(db, key.issuer_id, 'KEY_REVOKED', req.user.name, `Revoked key ID ${keyId} (Fingerprint: ${key.fingerprint})`);
 
         res.json({ success: true, message: 'Key revoked successfully' });
     } catch (error) {
@@ -236,9 +254,27 @@ router.post('/unflag', requireAuthority, (req, res) => {
     if (!userId) return res.status(400).json({ error: 'userId is required' });
 
     try {
+        const user = db.prepare('SELECT id, email, name FROM users WHERE id = ?').get(userId);
+        if (!user) return res.status(404).json({ error: 'User not found' });
+
         db.prepare('UPDATE users SET is_flagged = 0, abuse_score = 0 WHERE id = ?').run(userId);
+        
+        // System-wide audit log
+        db.prepare(`INSERT INTO audit_log (document_id, action, actor, details) VALUES (?, ?, ?, ?)`)
+            .run(0, 'USER_UNFLAGGED', req.user.name, `Authority ${req.user.name} unflagged user ${user.name}`);
+
+        // Explicitly tie the unflag event to the user's documents to surface it in the unified timeline
+        if (user.email) {
+            const userDocs = db.prepare('SELECT block_index FROM documents WHERE LOWER(uploader_email) = LOWER(?)').all(user.email);
+            const insertAudit = db.prepare(`INSERT INTO audit_log (document_id, action, actor, details) VALUES (?, ?, ?, ?)`);
+            for (const doc of userDocs) {
+                insertAudit.run(doc.block_index, 'USER_UNFLAGGED', req.user.name, `Uploader account unflagged by authority`);
+            }
+        }
+
         res.json({ success: true, message: 'User unflagged' });
     } catch (error) {
+        console.error('[UNFLAG_ERROR]', error);
         res.status(500).json({ error: 'Failed to unflag user' });
     }
 });
@@ -282,6 +318,7 @@ router.post('/promote', requireAuthority, (req, res) => {
         // Audit log (using 0 for system-wide actions)
         db.prepare(`INSERT INTO audit_log (document_id, action, actor, details) VALUES (?, ?, ?, ?)`)
             .run(0, 'USER_PROMOTION', req.user.name, `Authority ${req.user.name} promoted ${user.name} to ${newRole}`);
+        logToUserDocuments(db, userId, 'USER_PROMOTION', req.user.name, `Authority ${req.user.name} promoted ${user.name} to ${newRole}`);
 
         res.json({ success: true, message: `User ${user.name} promoted to ${newRole}` });
     } catch (error) {

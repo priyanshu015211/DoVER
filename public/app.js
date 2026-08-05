@@ -1410,8 +1410,8 @@ function loadChain(silent = false) {
                         <a href="/api/verify/${d.block_index}/proof" target="_blank" aria-label="Download JSON proof" class="inline-flex items-center gap-1 text-[9px] font-black uppercase text-secondary hover:text-primary-container transition-colors">
                             <span class="material-symbols-outlined text-[12px]">download</span> JSON Proof
                         </a>
-                        <button onclick="showVersionHistory(${d.block_index})" aria-label="View version history" class="inline-flex items-center gap-1 text-[9px] font-black uppercase text-blue-600 hover:text-blue-800 transition-colors">
-                            <span class="material-symbols-outlined text-[12px]">history</span> View Versions
+                        <button onclick="showDocumentTimeline(${d.block_index})" aria-label="View history timeline" class="inline-flex items-center gap-1 text-[9px] font-black uppercase text-blue-600 hover:text-blue-800 transition-colors">
+                            <span class="material-symbols-outlined text-[12px]">history</span> View Timeline
                         </button>
                         <button onclick="renderIntegrityModal(${d.block_index})" aria-label="Verify integrity" class="inline-flex items-center gap-1 text-[9px] font-black uppercase text-emerald-600 hover:text-emerald-800 transition-colors">
                             <span class="material-symbols-outlined text-[12px]">analytics</span> Verify Integrity
@@ -2092,23 +2092,41 @@ function renderGlobalBatch(app) {
     window.addEventListener('hashchange', () => { if (pollInterval) clearInterval(pollInterval); }, { once: true });
 }
 
-async function showVersionHistory(id) {
-    // Basic modal/overlay for version history
+async function showDocumentTimeline(id) {
     const overlay = document.createElement('div');
     overlay.className = 'fixed inset-0 z-[100] flex items-center justify-center p-6 bg-primary/40 backdrop-blur-sm fade-in';
-    overlay.id = 'version-overlay';
+    overlay.id = 'timeline-overlay';
     overlay.innerHTML = `
-        <div class="bg-white dark:bg-[#1C2A41] w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh] scale-in">
-            <div class="px-8 py-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
-                <div>
-                    <h3 class="text-xl font-black text-primary dark:text-[#E9C176] uppercase tracking-tight">Version Timeline</h3>
-                    <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Document Lineage Tracking</p>
+        <div class="bg-white dark:bg-[#1C2A41] w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] scale-in">
+            <div class="px-8 py-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-gradient-to-r from-slate-50 to-white dark:from-[#1C2A41] dark:to-[#162235]">
+                <div class="flex items-center gap-4">
+                    <div class="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg">
+                        <span class="material-symbols-outlined">timeline</span>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-black text-primary dark:text-[#E9C176] uppercase tracking-tight">Audit Timeline</h3>
+                        <p class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Unified Document History</p>
+                    </div>
                 </div>
-                <button onclick="document.getElementById('version-overlay').remove()" class="w-10 h-10 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors">
+                <button onclick="document.getElementById('timeline-overlay').remove()" class="w-10 h-10 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors">
                     <span class="material-symbols-outlined text-slate-400">close</span>
                 </button>
             </div>
-            <div id="version-timeline-content" class="p-8 overflow-y-auto flex-1 space-y-8">
+            
+            <div id="timeline-summary-header" class="grid grid-cols-4 divide-x divide-slate-100 dark:divide-slate-800 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/30">
+                <!-- Summary cards populated dynamically -->
+            </div>
+
+            <div class="px-8 py-4 border-b border-slate-100 dark:border-slate-800 flex gap-2 overflow-x-auto custom-scrollbar bg-white dark:bg-[#1C2A41]">
+                <button onclick="filterTimeline('all')" class="filter-btn active px-4 py-1.5 rounded-full text-xs font-bold bg-slate-800 text-white transition-colors">All Events</button>
+                <button onclick="filterTimeline('upload')" class="filter-btn px-4 py-1.5 rounded-full text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">Uploads</button>
+                <button onclick="filterTimeline('version')" class="filter-btn px-4 py-1.5 rounded-full text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">Versions</button>
+                <button onclick="filterTimeline('proof')" class="filter-btn px-4 py-1.5 rounded-full text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">Proofs</button>
+                <button onclick="filterTimeline('admin')" class="filter-btn px-4 py-1.5 rounded-full text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">Admin</button>
+                <button onclick="filterTimeline('system')" class="filter-btn px-4 py-1.5 rounded-full text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">System</button>
+            </div>
+
+            <div id="timeline-content" class="p-8 overflow-y-auto flex-1 space-y-8 bg-slate-50/50 dark:bg-[#1C2A41]">
                 <div class="flex justify-center py-12"><div class="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div></div>
             </div>
         </div>
@@ -2116,40 +2134,116 @@ async function showVersionHistory(id) {
     document.body.appendChild(overlay);
 
     try {
-        const versions = await secureFetch(`/api/chain/document/${id}/versions`).then(r => r.json());
-        const content = document.getElementById('version-timeline-content');
-
-        if (!versions.length) {
-            content.innerHTML = '<p class="text-center text-slate-400 font-medium py-12">No version history found.</p>';
+        const response = await secureFetch(`/api/chain/document/${id}/timeline`);
+        const data = await response.json();
+        
+        if (!data.success || !data.timeline || !data.timeline.length) {
+            document.getElementById('timeline-content').innerHTML = '<p class="text-center text-slate-400 font-medium py-12">No timeline history found.</p>';
             return;
         }
 
-        content.innerHTML = versions.map((v, i) => {
-            const isLatest = i === versions.length - 1;
-            return `
-                <div class="relative flex gap-6">
-                    ${!isLatest ? '<div class="absolute left-[19px] top-10 bottom-[-32px] w-0.5 bg-slate-100 dark:bg-slate-800"></div>' : ''}
-                    <div class="flex-shrink-0 w-10 h-10 rounded-full ${isLatest ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-400'} flex items-center justify-center z-10 font-black text-xs">
-                        V${v.version_number}
+        window.currentTimelineData = data.timeline;
+
+        // Compute Summary Stats
+        const events = data.timeline;
+        const uploadEvents = events.filter(e => e.action === 'UPLOAD');
+        const firstUpload = uploadEvents.length > 0 ? uploadEvents[uploadEvents.length - 1].timestamp : events[events.length - 1].timestamp;
+        const latestChange = events[0].timestamp;
+        const proofCount = events.filter(e => e.action === 'PROOF_DOWNLOADED').length;
+        const adminEvents = events.filter(e => e.category === 'admin');
+        const lastAdminAction = adminEvents.length > 0 ? adminEvents[0].action : 'None';
+
+        document.getElementById('timeline-summary-header').innerHTML = `
+            <div class="p-4 text-center">
+                <p class="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">First Upload</p>
+                <p class="text-sm font-bold text-primary dark:text-[#E9C176] truncate">${new Date(firstUpload).toLocaleDateString()}</p>
+            </div>
+            <div class="p-4 text-center">
+                <p class="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Latest Event</p>
+                <p class="text-sm font-bold text-primary dark:text-[#E9C176] truncate">${new Date(latestChange).toLocaleDateString()}</p>
+            </div>
+            <div class="p-4 text-center">
+                <p class="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Proof Downloads</p>
+                <p class="text-sm font-bold text-primary dark:text-[#E9C176] truncate">${proofCount}</p>
+            </div>
+            <div class="p-4 text-center">
+                <p class="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-1">Last Admin Action</p>
+                <p class="text-sm font-bold text-primary dark:text-[#E9C176] truncate">${escapeHtml(lastAdminAction)}</p>
+            </div>
+        `;
+
+        renderTimelineItems('all');
+    } catch (e) {
+        document.getElementById('timeline-content').innerHTML = `
+            <div class="text-center py-12">
+                <span class="material-symbols-outlined text-4xl text-red-300 mb-2">error</span>
+                <p class="text-slate-400 font-medium">Failed to load timeline. ${e.message}</p>
+            </div>
+        `;
+    }
+}
+
+window.filterTimeline = function(category) {
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.className = 'filter-btn px-4 py-1.5 rounded-full text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors';
+    });
+    const activeBtn = Array.from(document.querySelectorAll('.filter-btn')).find(b => b.textContent.toLowerCase().includes(category) || (category === 'all' && b.textContent === 'All Events'));
+    if (activeBtn) activeBtn.className = 'filter-btn active px-4 py-1.5 rounded-full text-xs font-bold bg-slate-800 text-white transition-colors';
+    
+    renderTimelineItems(category);
+};
+
+function renderTimelineItems(categoryFilter) {
+    const content = document.getElementById('timeline-content');
+    const events = window.currentTimelineData || [];
+    const filteredEvents = categoryFilter === 'all' ? events : events.filter(e => e.category === categoryFilter);
+
+    if (!filteredEvents.length) {
+        content.innerHTML = '<p class="text-center text-slate-400 font-medium py-12">No events match this filter.</p>';
+        return;
+    }
+
+    const catIcons = {
+        upload: 'upload_file',
+        version: 'history_edu',
+        proof: 'download',
+        admin: 'admin_panel_settings',
+        system: 'settings'
+    };
+    const catColors = {
+        upload: 'bg-emerald-100 text-emerald-700',
+        version: 'bg-blue-100 text-blue-700',
+        proof: 'bg-purple-100 text-purple-700',
+        admin: 'bg-red-100 text-red-700',
+        system: 'bg-slate-200 text-slate-700'
+    };
+
+    content.innerHTML = filteredEvents.map((e, i) => {
+        return `
+            <div class="relative flex gap-6">
+                ${i < filteredEvents.length - 1 ? '<div class="absolute left-[19px] top-10 bottom-[-32px] w-0.5 bg-slate-200 dark:bg-slate-700"></div>' : ''}
+                <div class="flex-shrink-0 w-10 h-10 rounded-full ${catColors[e.category] || catColors.system} flex items-center justify-center z-10 shadow-sm border border-white dark:border-slate-800">
+                    <span class="material-symbols-outlined text-sm">${catIcons[e.category] || 'event'}</span>
+                </div>
+                <div class="flex-1 pb-2">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${new Date(e.timestamp).toLocaleString()}</span>
+                        <div class="flex gap-2">
+                            ${e.version_number ? `<span class="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[8px] font-black uppercase tracking-tighter">V${e.version_number}</span>` : ''}
+                            <span class="px-2 py-0.5 rounded-full ${catColors[e.category] || catColors.system} text-[8px] font-black uppercase tracking-tighter">${e.category}</span>
+                        </div>
                     </div>
-                    <div class="flex-1 pb-2">
-                        <div class="flex items-center justify-between mb-1">
-                            <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest">${new Date(v.upload_timestamp).toLocaleDateString()}</span>
-                            ${isLatest ? '<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[8px] font-black uppercase tracking-tighter">Current Version</span>' : ''}
-                        </div>
-                        <h4 class="font-bold text-primary dark:text-[#D6E3FF] text-sm">${escapeHtml(v.version_note || (v.version_number === 1 ? 'Original Registration' : 'No note provided'))}</h4>
-                        <div class="mt-2 flex items-center gap-3 text-[10px] text-slate-500 dark:text-slate-400 font-medium">
-                            <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">person</span> ${escapeHtml(v.uploaded_by)}</span>
-                            <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">tag</span> Block #${v.document_id}</span>
-                        </div>
+                    <h4 class="font-bold text-primary dark:text-[#D6E3FF] text-sm">${escapeHtml(e.action)}</h4>
+                    <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">${escapeHtml(e.details_public)}</p>
+                    ${e.details_private ? `<div class="mt-2 p-3 bg-red-50 dark:bg-red-900/10 rounded-xl border border-red-100 dark:border-red-900/30 text-xs font-mono text-red-800 dark:text-red-300 break-all">${escapeHtml(e.details_private)}</div>` : ''}
+                    <div class="mt-2 flex items-center gap-3 text-[10px] text-slate-500 font-medium">
+                        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">person</span> ${escapeHtml(e.actor)}</span>
+                        <span class="flex items-center gap-1"><span class="material-symbols-outlined text-[12px]">tag</span> Block #${e.document_id}</span>
                     </div>
                 </div>
-            `;
-        }).reverse().join(''); // Show latest at top
-
-    } catch (e) {
-        document.getElementById('version-timeline-content').innerHTML = '<p class="text-center text-red-500 font-bold py-12">Failed to load history.</p>';
-    }
+            </div>
+        `;
+    }).join('');
 }
 
 async function renderIntegrityModal(id) {
@@ -2172,6 +2266,9 @@ async function renderIntegrityModal(id) {
                     ${currentUser?.role === 'authority' ? `
                         <button onclick="downloadReport(${id})" class="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 rounded-xl font-bold text-xs hover:bg-emerald-100 transition-all border border-emerald-100">
                             <span class="material-symbols-outlined text-sm">download</span> Export Official Report
+                        </button>
+                        <button onclick="downloadAuditBundle(${id})" class="flex items-center gap-2 px-4 py-2 bg-purple-50 text-purple-700 rounded-xl font-bold text-xs hover:bg-purple-100 transition-all border border-purple-100">
+                            <span class="material-symbols-outlined text-sm">folder_zip</span> Export Audit Bundle
                         </button>
                     ` : ''}
                     <button onclick="document.getElementById('integrity-overlay').remove()" class="w-12 h-12 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-all active:scale-90">
@@ -2313,6 +2410,9 @@ async function renderDocumentIntelligence(id) {
                     ${currentUser?.role === 'authority' ? `
                         <button onclick="downloadReport(${id})" class="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 rounded-xl font-bold text-xs hover:bg-emerald-100 transition-all border border-emerald-100">
                             <span class="material-symbols-outlined text-sm">download</span> Export Official Report
+                        </button>
+                        <button onclick="downloadAuditBundle(${id})" class="flex items-center gap-2 px-4 py-2 bg-purple-50 text-purple-700 rounded-xl font-bold text-xs hover:bg-purple-100 transition-all border border-purple-100">
+                            <span class="material-symbols-outlined text-sm">folder_zip</span> Export Audit Bundle
                         </button>
                         <button id="refresh-ai-btn" class="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-xl font-bold text-xs hover:bg-blue-100 transition-all border border-blue-100">
                             <span class="material-symbols-outlined text-sm">refresh</span> Refresh Intelligence
@@ -2555,6 +2655,37 @@ async function downloadReport(id) {
         const a = document.createElement('a');
         a.href = url;
         a.download = `DoVER_Audit_Report_${id}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        a.remove();
+    } catch (e) {
+        alert("Export failed: " + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalContent;
+    }
+}
+
+// ── Export Audit Bundle ──
+async function downloadAuditBundle(id) {
+    const btn = event.currentTarget;
+    const originalContent = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="material-symbols-outlined text-sm animate-spin">progress_activity</span> Exporting...';
+
+    try {
+        const response = await secureFetch(`/api/chain/document/${id}/bundle`);
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || "Failed to generate audit bundle");
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `DoVER_Audit_Bundle_${id}.json`;
         document.body.appendChild(a);
         a.click();
         window.URL.revokeObjectURL(url);

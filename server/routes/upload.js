@@ -240,10 +240,24 @@ router.post('/batch-upload', uploadLimiter, (req, res) => {
                         fileHash
                     };
 
+                    let jobId = null;
                     if (isQueueReady) {
                         const job = await documentQueue.add(jobData);
                         jobIds.push(job.id);
-                    } else {
+                        jobId = job.id.toString();
+                    }
+
+                    // Store in batch_items table
+                    try {
+                        db.prepare(`
+                            INSERT INTO batch_items (batch_id, job_id, storage_id, uploader_email, uploaded_by, department, file_hash, original_filename, status)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued')
+                        `).run(batchId, jobId, gridfsId.toString(), uploaderEmail, uploadedBy, documentCategory, fileHash, file.originalname);
+                    } catch (e) {
+                        console.error('[BATCH] Failed to insert batch_item', e.message);
+                    }
+
+                    if (!isQueueReady) {
                         const result = await processDocument(jobData);
                         results.push(result);
                     }
@@ -313,6 +327,61 @@ router.get('/status/:job_id', requireAuth, async (req, res) => {
         });
     } catch (error) {
         return res.status(500).json({ error: 'Failed to get job status' });
+    }
+});
+
+router.post('/batch/:batch_id/retry/:storage_id', requireAuth, async (req, res) => {
+    try {
+        const { batch_id, storage_id } = req.params;
+        const item = db.prepare('SELECT * FROM batch_items WHERE batch_id = ? AND storage_id = ?').get(batch_id, storage_id);
+        
+        if (!item) {
+            return res.status(404).json({ success: false, error: 'Batch item not found' });
+        }
+        
+        const isAuthority = req.user.role === 'authority';
+        if (!isAuthority && !emailsEqual(item.uploader_email, req.user.email)) {
+            return res.status(403).json({ success: false, error: 'Permission denied' });
+        }
+        
+        if (item.status !== 'failed') {
+            return res.status(400).json({ success: false, error: 'Only failed jobs can be retried' });
+        }
+        
+        const bucket = getBucket();
+        if (!bucket) return res.status(503).json({ success: false, error: 'Database not ready' });
+
+        const files = await bucket.find({ _id: new mongoose.Types.ObjectId(storage_id) }).toArray();
+        if (files.length === 0) {
+            return res.status(400).json({ success: false, error: 'FILE_EXPIRED' });
+        }
+        const fileDoc = files[0];
+        
+        const jobData = {
+            storageId: storage_id,
+            originalname: fileDoc.filename,
+            mimetype: fileDoc.contentType || 'application/octet-stream',
+            uploadedBy: item.uploaded_by,
+            uploaderEmail: item.uploader_email,
+            department: item.department,
+            batch_id: batch_id,
+            fileHash: item.file_hash
+        };
+        
+        const isQueueReady = documentQueue.client && documentQueue.client.status === 'ready';
+        if (!isQueueReady) {
+            return res.status(503).json({ success: false, error: 'Queue is offline' });
+        }
+        
+        const job = await documentQueue.add(jobData);
+        
+        db.prepare('UPDATE batch_items SET status = ?, job_id = ?, failed_reason = NULL, retry_count = retry_count + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+          .run('queued', job.id.toString(), item.id);
+          
+        res.json({ success: true, message: 'Job retried', job_id: job.id });
+    } catch (e) {
+        console.error('[RETRY_ERROR]', e);
+        res.status(500).json({ success: false, error: 'Failed to retry job' });
     }
 });
 
