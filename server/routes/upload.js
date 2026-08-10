@@ -24,8 +24,20 @@ const { recordUploadVelocity } = require('../utils/abuse');
 // Configure multer for temp storage
 const tmpDir = path.resolve(__dirname, '..', '..', 'tmp');
 
-const sanitizeName = (name) =>
-  path.basename(String(name)).replace(/[^a-zA-Z0-9._-]/g, '_');
+// Only files with these extensions are accepted (see fileFilter below), so it's
+// safe to whitelist them here too. Anything else collapses to no extension at all.
+const ALLOWED_TMP_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.txt'];
+
+// SECURITY FIX (#111): never derive the on-disk filename from attacker-controlled
+// `file.originalname`. Even after path.basename()+char-stripping, originalname is
+// not a trustworthy input to build a filesystem path from. Use only a random
+// component plus a whitelisted extension; the real original filename is preserved
+// separately (req.file.originalname) and used only as metadata (e.g. the GridFS
+// document name), never as part of a filesystem path.
+const safeTmpExtension = (originalname) => {
+    const ext = path.extname(String(originalname)).toLowerCase();
+    return ALLOWED_TMP_EXTENSIONS.includes(ext) ? ext : '';
+};
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -33,8 +45,8 @@ const storage = multer.diskStorage({
         cb(null, tmpDir);
     },
     filename: (req, file, cb) => {
-        const safeName = sanitizeName(file.originalname);
-        cb(null, `${Date.now()}-${crypto.randomUUID()}-${safeName}`);
+        const ext = safeTmpExtension(file.originalname);
+        cb(null, `${Date.now()}-${crypto.randomBytes(16).toString('hex')}${ext}`);
     }
 });
 
